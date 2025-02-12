@@ -19,7 +19,8 @@ from django.urls import path, include
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('api/v1/login/', include('login.urls')),  # ✅ Include your login app URLs under `/api/`
+    path('api/v1/login/', include('login.urls')),
     path('api/v1/home/', include('homepage.urls')),
     path('api/v1/tres/', include('tres.urls')),
+    path('api/v1/scanner/', include('scanner.urls')),
 ]
