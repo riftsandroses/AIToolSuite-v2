@@ -1,0 +1,20 @@
+.sub-menu {
+    position: absolute;
+    top: 3.75rem;
+    width: 23rem;
+    transform-origin: 50% -170px;
+    background-color: #172130;
+    --tw-backdrop-blur: blur(8px);
+    backdrop-filter: var(--tw-backdrop-blur) var(--tw-backdrop-brightness) var(--tw-backdrop-contrast) var(--tw-backdrop-grayscale) var(--tw-backdrop-hue-rotate) var(--tw-backdrop-invert) var(--tw-backdrop-opacity) var(--tw-backdrop-saturate) var(--tw-backdrop-sepia);
+    border-radius: 6px;
+    padding: 15px;
+}
+
+.innerSubMenu {
+    background: rgba(34, 50, 72, 0.371);
+    box-shadow: 0 0px 10px 0 rgba( 31, 38, 135, 0.37 );
+    backdrop-filter: blur( 3px );
+    -webkit-backdrop-filter: blur( 3px );
+    /* border-radius: 10px; */
+    border: 1px solid rgba( 255, 255, 255, 0.18 );
+}
