@@ -19,7 +19,7 @@ import { PanelsTopLeft } from "lucide-react";
 import { PanelTop } from "lucide-react";
 
 export const menu1 = {
-    name: "Features",
+    name: "Home",
     subMenuHeading: ["Design", "Scale"],
     subMenu: [
       {
@@ -48,7 +48,7 @@ export const menu1 = {
 
 export const Menus = [
   {
-    name: "Features",
+    name: "Home",
     subMenuHeading: ["Design", "Scale"],
     subMenu: [
       {

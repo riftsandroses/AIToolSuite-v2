@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { motion } from "framer-motion";
-// import { menu1 } from "./utils";
+import classes from "./header.module.css"
 
-export default function DesktopMenu({ menu }) {
+
+const TabItem = ({ menu }) => {
     const [isHover, toggleHover] = useState(false);
     const toggleHoverMenu = () => {
         toggleHover(!isHover);
@@ -31,7 +32,6 @@ export default function DesktopMenu({ menu }) {
     };
 
     const hasSubMenu = menu?.subMenu?.length;
-    // const hasSubMenu = 4;
 
 
     return (
@@ -51,7 +51,7 @@ export default function DesktopMenu({ menu }) {
             </span>
             {hasSubMenu && (
                 <motion.div
-                    className="sub-menu will-change-auto"
+                    className={`${`will-change-auto`} ${classes.subMenu}`}
                     initial="exit"
                     animate={isHover ? "enter" : "exit"}
                     variants={subMenuAnimate}
@@ -93,3 +93,5 @@ export default function DesktopMenu({ menu }) {
         </motion.li>
     );
 }
+
+export default TabItem
