@@ -1,90 +1,127 @@
-from rest_framework import viewsets, status
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
-from rest_framework.decorators import action
-from django.shortcuts import get_object_or_404
-from .models import OpenAIIntegration, AzureDeployment, ValueMapping, ScanResult
-from .serializers import OpenAIIntegrationSerializer, AzureDeploymentSerializer, ValueMappingSerializer, ScanResultSerializer
-from django.conf import settings
 import os
-import uuid
 import yaml
-import subprocess
-from threading import Thread
-from scanner.utils.watchdog_handler import start_file_watch
+import uuid
+from django.conf import settings
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status, permissions
+from .models import OpenAIDB, AzureDB
+from .serializers import OpenAIScanSerializer, AzureScanSerializer
 
-class OpenAIIntegrationViewSet(viewsets.ModelViewSet):
-    queryset = OpenAIIntegration.objects.all()
-    serializer_class = OpenAIIntegrationSerializer
-    permission_classes = [IsAuthenticated]
+class ScanAPIView(APIView):
+    permission_classes = [permissions.IsAuthenticated]  # Require authentication
 
-    def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
+    def generate_yaml_file(self, scan_name, client_name, client_app_name, attack_name):
+        """Generates a YAML file and returns the file path and filename."""
 
-    @action(detail=True, methods=['post'])
-    def start_scan(self, request, pk=None):
-        integration = self.get_object()
-        try:
-            result_message = execute_garak_scan_openai(integration)
-            return Response({"message": result_message}, status=status.HTTP_200_OK)
-        except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        # Generate unique identifier
+        unique_id = str(uuid.uuid4())[:8]  # Shortened UUID
 
-class AzureDeploymentViewSet(viewsets.ModelViewSet):
-    queryset = AzureDeployment.objects.all()
-    serializer_class = AzureDeploymentSerializer
-    permission_classes = [IsAuthenticated]
+        # Replace spaces with underscores in filename parts
+        safe_scan_name = scan_name.replace(" ", "_")
+        safe_client_name = client_name.replace(" ", "_")
+        safe_client_app_name = client_app_name.replace(" ", "_")
 
-    def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
+        # Construct filename using a safe separator
+        safe_filename = f"{safe_scan_name}_{safe_client_name}_{safe_client_app_name}_{unique_id}.yaml"
 
-    @action(detail=True, methods=['post'])
-    def start_scan(self, request, pk=None):
-        deployment = self.get_object()
-        try:
-            result_message = execute_garak_scan_azure(deployment)
-            return Response({"message": result_message}, status=status.HTTP_200_OK)
-        except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        # Construct full file path
+        file_path = os.path.join(settings.MEDIA_ROOT, "yaml", safe_filename)
 
-class ValueMappingViewSet(viewsets.ModelViewSet):
-    queryset = ValueMapping.objects.all()
-    serializer_class = ValueMappingSerializer
-    permission_classes = [IsAuthenticated]
+        # Construct YAML data
+        yaml_data = {
+            'system': {
+                'verbose': 0,
+                'narrow_output': False,
+                'parallel_requests': False,
+                'parallel_attempts': False,
+                'lite': True,
+                'show_z': False,
+            },
+            'run': {
+                'seed': None,
+                'deprefix': True,
+                'eval_threshold': 0.5,
+                'generations': 5,
+                'probe_tags': None,
+            },
+            'plugins': {
+                'model_type': None,
+                'model_name': None,
+                'probe_spec': attack_name,  # Mapping attack_name to probe_spec
+                'detector_spec': 'auto',
+                'extended_detectors': False,
+                'buff_spec': None,
+                'buffs_include_original_prompt': False,
+                'buff_max': None,
+                'detectors': {},
+                'generators': {},
+                'buffs': {},
+                'harnesses': {},
+                'probes': {
+                    'encoding': {
+                        'payloads': ['default']
+                    }
+                },
+            },
+            'reporting': {
+                'report_prefix': safe_filename.replace(".yaml", ""),
+                'taxonomy': None,
+                'report_dir': os.path.join(settings.MEDIA_ROOT, "yaml"),  # Path to media/yaml
+                'show_100_pass_modules': True,
+            },
+        }
 
-class ScanResultViewSet(viewsets.ModelViewSet):
-    queryset = ScanResult.objects.all()
-    serializer_class = ScanResultSerializer
-    permission_classes = [IsAuthenticated]
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
 
-def execute_garak_scan_openai(integration):
-    try:
-        os.environ['OPENAI_API_KEY'] = integration.api_key
-        yaml_path = os.path.join(settings.MEDIA_ROOT, 'yamls', integration.yaml_name)
-        hitlog_path = yaml_path.replace('.yaml', '.hitlog.jsonl')
+        # Save YAML file
+        with open(file_path, "w") as yaml_file:
+            yaml.dump(yaml_data, yaml_file, default_flow_style=False)
 
-        command = ["garak", "--model_type", "openai", "--model_name", integration.model_name, "--config", yaml_path]
+        return safe_filename, file_path  # Return cleaned filename and file path
 
-        observer_thread = Thread(target=start_file_watch, args=(hitlog_path, integration.user))
-        observer_thread.daemon = True
-        observer_thread.start()
+    def post(self, request, *args, **kwargs):
+        generator = request.data.get('generator')
 
-        subprocess.Popen(command)
-        return "Scan started successfully."
-    except Exception as e:
-        raise Exception(f"Error during scan execution: {e}")
+        if generator == 'openai':
+            serializer = OpenAIScanSerializer(data=request.data)
+            if serializer.is_valid():
+                # Generate YAML file
+                yaml_filename, _ = self.generate_yaml_file(
+                    serializer.validated_data["scan_name"],
+                    serializer.validated_data["client_name"],
+                    serializer.validated_data["client_app_name"],
+                    serializer.validated_data["attack_name"],
+                )
 
-def execute_garak_scan_azure(deployment):
-    try:
-        os.environ['AZURE_API_KEY'] = deployment.azure_api_key
-        os.environ['AZURE_ENDPOINT'] = deployment.azure_endpoint_url
-        os.environ['AZURE_MODEL_NAME'] = deployment.azure_model_name
+                # Save in OpenAIDB
+                openai_scan = OpenAIDB.objects.create(
+                    user=request.user, 
+                    yaml_file=yaml_filename,  # Save YAML filename only
+                    **serializer.validated_data
+                )
 
-        yaml_path = os.path.join(settings.MEDIA_ROOT, 'yamls', deployment.yaml_name)
+                return Response({"message": "OpenAI scan saved successfully"}, status=status.HTTP_201_CREATED)
 
-        command = ["garak", "--model_type", "azure", "--model_name", deployment.azure_deployment_name, "--config", yaml_path]
+        elif generator == 'azure':
+            serializer = AzureScanSerializer(data=request.data)
+            if serializer.is_valid():
+                # Generate YAML file
+                yaml_filename, _ = self.generate_yaml_file(
+                    serializer.validated_data["scan_name"],
+                    serializer.validated_data["client_name"],
+                    serializer.validated_data["client_app_name"],
+                    serializer.validated_data["attack_name"],
+                )
 
-        subprocess.Popen(command)
-        return "Scan started successfully."
-    except Exception as e:
-        raise Exception(f"Error during scan execution: {e}")
+                # Save in AzureDB
+                azure_scan = AzureDB.objects.create(
+                    user=request.user, 
+                    yaml_file=yaml_filename,  # Save YAML filename only
+                    **serializer.validated_data
+                )
+
+                return Response({"message": "Azure scan saved successfully"}, status=status.HTTP_201_CREATED)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
