@@ -1,13 +1,6 @@
-@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700&display=swap');
 
-*{
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
+.outerContainer{
     font-family: 'Montserrat', sans-serif;
-}
-
-.outer-container{
     background-color: #c9d6ff;
     background: linear-gradient(to right, #e2e2e2, #c9d6ff);
     display: flex;
@@ -26,6 +19,20 @@
     width: 768px;
     max-width: 100%;
     min-height: 480px;
+}
+
+.containerHeading{
+    /* text-4xl font-bold mb-8 */
+    font-size: 2.25rem;
+    font-weight: 700;
+    /* margin-bottom: 2rem; */
+}
+
+.subText{
+    margin-top: 1rem;
+    margin-bottom: 4rem;
+    color:#333;
+    font-size:0.75rem
 }
 
 .toggleInfo{
@@ -72,7 +79,7 @@
 
 }
 
-.container form{
+.form{
     background-color: #fff;
     display: flex;
     align-items: center;
@@ -82,7 +89,7 @@
     height: 100%;
 }
 
-.container input{
+.inputField{
     background-color: #eee;
     border: none;
     margin: 8px 0;
@@ -93,31 +100,32 @@
     outline: none;
 }
 
-.form-container{
+.formContainer{
     position: absolute;
     top: 0;
     height: 100%;
     transition: all 0.6s ease-in-out;
 }
 
-.sign-in{
+.signIn{
     left: 0;
     width: 50%;
     z-index: 2;
 }
 
-.container.active .sign-in{
+
+.active .signIn{
     transform: translateX(100%);
 }
 
-.sign-up{
+.signUp{
     left: 0;
     width: 50%;
     opacity: 0;
     z-index: 1;
 }
 
-.container.active .sign-up{
+.active .signUp{
     transform: translateX(100%);
     opacity: 1;
     z-index: 5;
@@ -150,7 +158,7 @@
     height: 40px;
 } */
 
-.toggle-container{
+.toggleContainer{
     position: absolute;
     top: 0;
     left: 50%;
@@ -162,7 +170,7 @@
     z-index: 1000;
 }
 
-.container.active .toggle-container{
+.active .toggleContainer{
     transform: translateX(-100%);
     border-radius: 0 150px 100px 0;
 }
@@ -180,11 +188,11 @@
     transition: all 0.6s ease-in-out;
 }
 
-.container.active .toggle{
+.active .toggle{
     transform: translateX(50%);
 }
 
-.toggle-panel{
+.togglePanel{
     position: absolute;
     width: 50%;
     height: 100%;
@@ -199,19 +207,19 @@
     transition: all 0.6s ease-in-out;
 }
 
-.toggle-left{
+.toggleLeft{
     transform: translateX(-200%);
 }
 
-.container.active .toggle-left{
+.active .toggleLeft{
     transform: translateX(0);
 }
 
-.toggle-right{
+.toggleRight{
     right: 0;
     transform: translateX(0);
 }
 
-.container.active .toggle-right{
+.active .toggleRight{
     transform: translateX(200%);
 }

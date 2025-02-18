@@ -36,57 +36,49 @@ const TabItem = ({ menu }) => {
 
     return (
         <motion.li
-            className="group/link"
+        className="group/link"
             onHoverStart={() => {
                 toggleHoverMenu();
             }}
             onHoverEnd={toggleHoverMenu}
             key={menu.name}
         >
-            <span className="flex items-center gap-1 cursor-pointer  rounded-xl">
-                {menu.name}
+            <span className={classes.tabName}>
+                {menu.tabName}
                 {hasSubMenu && (
                     <ChevronDown className="mt-[0.6px] group-hover/link:rotate-180 duration-200" />
                 )}
             </span>
             {hasSubMenu && (
                 <motion.div
-                    className={`${`will-change-auto`} ${classes.subMenu}`}
+                    className={classes.subMenuContainer}
                     initial="exit"
                     animate={isHover ? "enter" : "exit"}
                     variants={subMenuAnimate}
-                >
-                    <div
-                        className={`grid gap-7 
-                            ${menu.gridCols === 3
-                                ? "grid-cols-3"
-                                : menu.gridCols === 2
-                                    ? "grid-cols-2"
-                                    : "grid-cols-1"
-                            }
-                            `}
-
-                        // className="flex gap-7"
-                    >
-                        {hasSubMenu &&
-                            menu.subMenu.map((submenu, i) => (
-                                <div className="relative cursor-pointer" key={i}>
-                                    {menu.gridCols > 1 && menu?.subMenuHeading?.[i] && (
-                                        <p className="text-sm mb-4 text-gray-500">
-                                            {menu?.subMenuHeading?.[i]}
+                >                  
+                    <div className="flex flex-row">
+                           {menu.subMenu.map((subMenu, i) => { 
+                            return(
+                                <>
+                                    <div className="flex flex-col w-[14rem] " key={i}>
+                                        <p className={classes.subMenuHeading}>
+                                            {subMenu.heading}
                                         </p>
-                                    )}
-                                    <div className="flex-center gap-x-4 group/menubox">
-                                        <div className="bg-white/5 w-fit p-2 rounded-md group-hover/menubox:bg-white group-hover/menubox:text-gray-900 duration-300">
-                                            {submenu.icon && <submenu.icon />}
-                                        </div>
-                                        <div>
-                                            <h6 className="font-semibold">{submenu.name}</h6>
-                                            <p className="text-sm text-gray-400">{submenu.desc}</p>
-                                        </div>
+                                        {subMenu.options.map((subMenuItem, index) => {
+                                            return (
+                                            <div className={`${classes.subMenuItem} group/menubox`} key={index}>
+                                                <div className="bg-white/5 w-fit p-2 mr-2 rounded-md group-hover/menubox:bg-white group-hover/menubox:text-gray-900 duration-300">
+                                                    {subMenuItem.icon && <subMenuItem.icon />}
+                                                </div>
+                                                <div>
+                                                    <h6 className="font-semibold">{subMenuItem.name}</h6>
+                                                    <p className="text-sm text-gray-400">{subMenuItem.desc}</p>
+                                                </div>
+                                            </div>
+                                        )})}
                                     </div>
-                                </div>
-                            ))}
+                                </>
+                            )})}
                     </div>
                 </motion.div>
             )}

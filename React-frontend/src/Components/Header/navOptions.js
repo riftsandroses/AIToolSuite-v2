@@ -18,33 +18,7 @@ import { Database } from "lucide-react";
 import { PanelsTopLeft } from "lucide-react";
 import { PanelTop } from "lucide-react";
 
-export const menu1 = {
-    name: "Home",
-    subMenuHeading: ["Design", "Scale"],
-    subMenu: [
-      {
-        name: "Design",
-        desc: "Responsive design",
-        icon: PanelsTopLeft,
-      },
-      {
-        name: "Management",
-        desc: "Site control",
-        icon: Bolt,
-      },
-      {
-        name: "Navigation",
-        desc: "Link pages",
-        icon: PanelTop,
-      },
-      {
-        name: "CMS",
-        desc: "Management content",
-        icon: Database,
-      },
-    ],
-    gridCols: 2,
-  }
+
 
 export const Menus = [
   {
@@ -174,5 +148,120 @@ export const Menus = [
   },
   {
     name: "Contact",
+  },
+];
+
+
+export const newMenus = [
+  {
+    tabName: "Home",
+    subMenu: [
+      {
+        heading: "Design",
+        options: [
+          {
+            name: "Design",
+            desc: "Responsive design",
+            icon: PanelsTopLeft,
+          },
+          {
+            name: "Management",
+            desc: "Site control",
+            icon: Bolt,
+          }
+        ]
+      },
+
+      {
+        heading: "Scale",
+        options: [
+          {
+            name: "Navigation",
+            desc: "Link pages",
+            icon: PanelTop,
+          },
+          {
+            name: "CMS",
+            desc: "Management content",
+            icon: Database,
+          },
+        ]
+      },
+
+    ],
+  },
+
+  {
+    tabName: "Pricing",
+  },
+  {
+    tabName: "Home",
+    subMenu: [
+      {
+        heading: "Design",
+        options: [
+          {
+            name: "Design",
+            desc: "Responsive design",
+            icon: PanelsTopLeft,
+          },
+          {
+            name: "Management",
+            desc: "Site control",
+            icon: Bolt,
+          },
+          {
+            name: "Navigation",
+            desc: "Link pages",
+            icon: PanelTop,
+          },
+        ]
+      },
+
+      {
+        heading: "Scale",
+        options: [
+          {
+            name: "Navigation",
+            desc: "Link pages",
+            icon: PanelTop,
+          },
+          {
+            name: "CMS",
+            desc: "Management content",
+            icon: Database,
+          },
+          {
+            name: "Navigation",
+            desc: "Link pages",
+            icon: PanelTop,
+          },
+          {
+            name: "Navigation",
+            desc: "Link pages",
+            icon: PanelTop,
+          },
+        ]
+      },
+      {
+        heading: "Scale",
+        options: [
+          {
+            name: "Navigation",
+            desc: "Link pages",
+            icon: PanelTop,
+          },
+          {
+            name: "Navigation",
+            desc: "Link pages",
+            icon: PanelTop,
+          },
+        ]
+      },
+
+    ],
+  },
+  {
+    tabName: "Contact",
   },
 ];

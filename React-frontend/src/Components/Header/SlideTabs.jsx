@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import classes from "./header.module.css"
 import TabItem from "./TabItem";
 
-const SlideTabs = ({menuItems}) => {
+const SlideTabs = ({menuItems, newMenu}) => {
   const [position, setPosition] = useState({
     left: 0,
     width: 0,
@@ -18,12 +18,12 @@ const SlideTabs = ({menuItems}) => {
           opacity: 0,
         }));
       }}
-      className={`${`relative mx-auto flex w-fit rounded-full border-2 border-black p-1`} ${classes.innerSubMenu}`}
+      className={classes.TabContainer}
     >
-      {menuItems.map((menu) => (
+      {newMenu.map((menu, index) => (
         <>
-          <Tab setPosition={setPosition} key={menu.name}>
-            <TabItem menu={menu} />
+          <Tab setPosition={setPosition} key={index}>
+            <TabItem menu={menu}/>
           </Tab>
         </>
       ))}
@@ -52,7 +52,7 @@ const Tab = ({ children, setPosition }) => {
             opacity: 1,
           });
         }}
-        className="relative z-10 block cursor-pointer px-3 py-1.5 text-xs uppercase text-white mix-blend-difference  md:text-base"
+        className={classes.tabItem}
       >
         {children}
       </div>
@@ -65,7 +65,7 @@ const Tab = ({ children, setPosition }) => {
         animate={{
           ...position,
         }}
-        className="absolute z-0 rounded-full bg-[#16202e] h-9 "
+        className={classes.tabSelector}
       />
     );
   };
