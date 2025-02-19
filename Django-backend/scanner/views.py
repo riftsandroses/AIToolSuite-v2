@@ -1,6 +1,8 @@
 import os
 import yaml
 import uuid
+import subprocess
+import re
 from django.conf import settings
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -17,91 +19,63 @@ ATTACK_MAPPING = {
     "hallucination_rate": "misleading.FalseAssertion50,packagehallucination.JavaScript,packagehallucination.Python,packagehallucination.Ruby,packagehallucination.Rust,snowball.GraphConnectivityMini,snowball.PrimesMini,snowball.SenatorsMini,topic.WordnetControversial",
 }
 
+def remove_emojis(text):
+    return re.sub(r'[\U00010000-\U0010ffff]', '', text)
+
 class ScanAPIView(APIView):
     permission_classes = [permissions.IsAuthenticated]  # Require authentication
 
     def generate_yaml_file(self, scan_name, client_name, client_app_name, attack_name):
-        """Generates a YAML file and returns the file path and filename."""
-        unique_id = str(uuid.uuid4())[:8]  # Shortened UUID
+        unique_id = str(uuid.uuid4())[:8]
         safe_filename = f"{scan_name.replace(' ', '_')}_{client_name.replace(' ', '_')}_{client_app_name.replace(' ', '_')}_{unique_id}.yaml"
         file_path = os.path.join(settings.MEDIA_ROOT, "yaml", safe_filename)
 
-        # Parse attack_name and build probe_spec
         attack_keys = [name.strip() for name in attack_name.split(",")]
         probe_specs = [ATTACK_MAPPING[key] for key in attack_keys if key in ATTACK_MAPPING]
         probe_spec_str = ",".join(probe_specs)
 
-        # Construct YAML data
         yaml_data = {
-            'system': {
-                'verbose': 0,
-                'narrow_output': False,
-                'parallel_requests': False,
-                'parallel_attempts': False,
-                'lite': True,
-                'show_z': False,
-            },
-            'run': {
-                'seed': None,
-                'deprefix': True,
-                'eval_threshold': 0.5,
-                'generations': 5,
-                'probe_tags': None,
-            },
             'plugins': {
-                'model_type': None,
-                'model_name': None,
-                'probe_spec': probe_spec_str,  # Updated based on attack_name
+                'probe_spec': probe_spec_str,
                 'detector_spec': 'auto',
-                'extended_detectors': False,
-                'buff_spec': None,
-                'buffs_include_original_prompt': False,
-                'buff_max': None,
-                'detectors': {},
-                'generators': {},
-                'buffs': {},
-                'harnesses': {},
-                'probes': {
-                    'encoding': {
-                        'payloads': ['default']
-                    }
-                },
             },
             'reporting': {
                 'report_prefix': safe_filename.replace(".yaml", ""),
-                'taxonomy': None,
                 'report_dir': os.path.join(settings.MEDIA_ROOT, "yaml"),
-                'show_100_pass_modules': True,
             },
         }
 
-        # Ensure directory exists
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
 
-        # Save YAML file
         with open(file_path, "w") as yaml_file:
             yaml.dump(yaml_data, yaml_file, default_flow_style=False)
 
-        return safe_filename, file_path  # Return filename and file path
+        return safe_filename, file_path
 
     def post(self, request, *args, **kwargs):
         generator = request.data.get('generator')
+        api_key = request.data.get('api_key')
+
+        if not api_key:
+            return Response({"error": "Missing OpenAI API key"}, status=status.HTTP_400_BAD_REQUEST)
+
+        os.environ["OPENAI_API_KEY"] = api_key  # Set API key dynamically
 
         if generator == 'openai':
             serializer = OpenAIScanSerializer(data=request.data)
             if serializer.is_valid():
-                yaml_filename, _ = self.generate_yaml_file(
+                yaml_filename, yaml_path = self.generate_yaml_file(
                     serializer.validated_data["scan_name"],
                     serializer.validated_data["client_name"],
                     serializer.validated_data["client_app_name"],
                     serializer.validated_data["attack_name"],
                 )
-                OpenAIDB.objects.create(
-                    user=request.user, 
-                    yaml_file=yaml_filename,
-                    **serializer.validated_data
-                )
-                return Response({"message": "OpenAI scan saved successfully"}, status=status.HTTP_201_CREATED)
+                OpenAIDB.objects.create(user=request.user, yaml_file=yaml_filename, **serializer.validated_data)
+
+                # Run the scan asynchronously
+                self.run_garak_scan(yaml_path, serializer.validated_data["model_name"])
+
+                return Response({"message": "Scan initiated"}, status=status.HTTP_202_ACCEPTED)
 
         elif generator == 'azure':
             serializer = AzureScanSerializer(data=request.data)
@@ -112,11 +86,16 @@ class ScanAPIView(APIView):
                     serializer.validated_data["client_app_name"],
                     serializer.validated_data["attack_name"],
                 )
-                AzureDB.objects.create(
-                    user=request.user, 
-                    yaml_file=yaml_filename,
-                    **serializer.validated_data
-                )
+                AzureDB.objects.create(user=request.user, yaml_file=yaml_filename, **serializer.validated_data)
+
                 return Response({"message": "Azure scan saved successfully"}, status=status.HTTP_201_CREATED)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def run_garak_scan(self, yaml_path, model_name):
+        """
+        Run Garak asynchronously as a background process.
+        """
+        command = ["garak", "--model_type", "openai", "--model_name", model_name, "--config", yaml_path]
+
+        subprocess.Popen(command)  # Run in the background
