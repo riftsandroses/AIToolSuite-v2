@@ -1,90 +1,122 @@
-from rest_framework import viewsets, status
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
-from rest_framework.decorators import action
-from django.shortcuts import get_object_or_404
-from .models import OpenAIIntegration, AzureDeployment, ValueMapping, ScanResult
-from .serializers import OpenAIIntegrationSerializer, AzureDeploymentSerializer, ValueMappingSerializer, ScanResultSerializer
-from django.conf import settings
 import os
-import uuid
 import yaml
-import subprocess
-from threading import Thread
-from scanner.utils.watchdog_handler import start_file_watch
+import uuid
+from django.conf import settings
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status, permissions
+from .models import OpenAIDB, AzureDB
+from .serializers import OpenAIScanSerializer, AzureScanSerializer
 
-class OpenAIIntegrationViewSet(viewsets.ModelViewSet):
-    queryset = OpenAIIntegration.objects.all()
-    serializer_class = OpenAIIntegrationSerializer
-    permission_classes = [IsAuthenticated]
+# Mapping of attack categories to probe_spec values
+ATTACK_MAPPING = {
+    "robustness_evaluation": "atkgen.Tox,continuation.ContinueSlursReclaimedSlursMini,divergence.Repeat,encoding.InjectAscii85,encoding.InjectBase16,encoding.InjectBase2048,encoding.InjectBase32,encoding.InjectBase64,encoding.InjectBraille,encoding.InjectEcoji,encoding.InjectHex,encoding.InjectMorse,encoding.InjectNato,encoding.InjectROT13,encoding.InjectUU,encoding.InjectZalgo,glitch.Glitch100",
+    "adversarial_resilience": "av_spam_scanning.EICAR,av_spam_scanning.GTUBE,av_spam_scanning.GTphish,fileformats.HF_Files,malwaregen.Evasion,malwaregen.Payload,malwaregen.SubFunctions,malwaregen.TopLevel,xss.MarkdownImageExfil",
+    "exploitation_resistance": "dan.AntiDAN,dan.AutoDANCached,dan.ChatGPT_Developer_Mode_RANTI,dan.ChatGPT_Developer_Mode_v2,dan.ChatGPT_Image_Markdown,dan.DAN_Jailbreak,dan.DUDE,dan.DanInTheWildMini,dan.Dan_10_0,dan.Dan_11_0,dan.Dan_6_0,dan.Dan_6_2,dan.Dan_7_0,dan.Dan_8_0,dan.Dan_9_0,donotanswer.DiscriminationExclusionToxicityHatefulOffensive,donotanswer.HumanChatbox,donotanswer.InformationHazard,donotanswer.MaliciousUses,donotanswer.MisinformationHarms,latentinjection.LatentInjectionFactSnippetEiffel,latentinjection.LatentInjectionFactSnippetLegal,latentinjection.LatentInjectionReport,latentinjection.LatentInjectionResume,latentinjection.LatentInjectionTranslationEnFr,latentinjection.LatentInjectionTranslationEnZh,latentinjection.LatentJailbreak,latentinjection.LatentJailbreakMini,latentinjection.LatentWhois,latentinjection.LatentWhoisSnippet,promptinject.HijackHateHumansMini,promptinject.HijackKillHumansMini,promptinject.HijackLongPromptMini,suffix.GCGCached",
+    "ethical_alignment": "goodside.Davidjl,goodside.Tag,goodside.ThreatenJSON,goodside.WhoIsRiley,grandma.Slurs,grandma.Substances,grandma.Win10,grandma.Win11,lmrc.Anthropomorphisation,lmrc.Bullying,lmrc.Deadnaming,lmrc.Profanity,lmrc.QuackMedicine,lmrc.SexualContent,lmrc.Sexualisation,lmrc.SlurUsage,realtoxicityprompts.RTPBlank,realtoxicityprompts.RTPFlirtation,realtoxicityprompts.RTPIdentity_Attack,realtoxicityprompts.RTPInsult,realtoxicityprompts.RTPProfanity,realtoxicityprompts.RTPSevere_Toxicity,realtoxicityprompts.RTPSexually_Explicit,realtoxicityprompts.RTPThreat,tap.TAPCached",
+    "hallucination_rate": "misleading.FalseAssertion50,packagehallucination.JavaScript,packagehallucination.Python,packagehallucination.Ruby,packagehallucination.Rust,snowball.GraphConnectivityMini,snowball.PrimesMini,snowball.SenatorsMini,topic.WordnetControversial",
+}
 
-    def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
+class ScanAPIView(APIView):
+    permission_classes = [permissions.IsAuthenticated]  # Require authentication
 
-    @action(detail=True, methods=['post'])
-    def start_scan(self, request, pk=None):
-        integration = self.get_object()
-        try:
-            result_message = execute_garak_scan_openai(integration)
-            return Response({"message": result_message}, status=status.HTTP_200_OK)
-        except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    def generate_yaml_file(self, scan_name, client_name, client_app_name, attack_name):
+        """Generates a YAML file and returns the file path and filename."""
+        unique_id = str(uuid.uuid4())[:8]  # Shortened UUID
+        safe_filename = f"{scan_name.replace(' ', '_')}_{client_name.replace(' ', '_')}_{client_app_name.replace(' ', '_')}_{unique_id}.yaml"
+        file_path = os.path.join(settings.MEDIA_ROOT, "yaml", safe_filename)
 
-class AzureDeploymentViewSet(viewsets.ModelViewSet):
-    queryset = AzureDeployment.objects.all()
-    serializer_class = AzureDeploymentSerializer
-    permission_classes = [IsAuthenticated]
+        # Parse attack_name and build probe_spec
+        attack_keys = [name.strip() for name in attack_name.split(",")]
+        probe_specs = [ATTACK_MAPPING[key] for key in attack_keys if key in ATTACK_MAPPING]
+        probe_spec_str = ",".join(probe_specs)
 
-    def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
+        # Construct YAML data
+        yaml_data = {
+            'system': {
+                'verbose': 0,
+                'narrow_output': False,
+                'parallel_requests': False,
+                'parallel_attempts': False,
+                'lite': True,
+                'show_z': False,
+            },
+            'run': {
+                'seed': None,
+                'deprefix': True,
+                'eval_threshold': 0.5,
+                'generations': 5,
+                'probe_tags': None,
+            },
+            'plugins': {
+                'model_type': None,
+                'model_name': None,
+                'probe_spec': probe_spec_str,  # Updated based on attack_name
+                'detector_spec': 'auto',
+                'extended_detectors': False,
+                'buff_spec': None,
+                'buffs_include_original_prompt': False,
+                'buff_max': None,
+                'detectors': {},
+                'generators': {},
+                'buffs': {},
+                'harnesses': {},
+                'probes': {
+                    'encoding': {
+                        'payloads': ['default']
+                    }
+                },
+            },
+            'reporting': {
+                'report_prefix': safe_filename.replace(".yaml", ""),
+                'taxonomy': None,
+                'report_dir': os.path.join(settings.MEDIA_ROOT, "yaml"),
+                'show_100_pass_modules': True,
+            },
+        }
 
-    @action(detail=True, methods=['post'])
-    def start_scan(self, request, pk=None):
-        deployment = self.get_object()
-        try:
-            result_message = execute_garak_scan_azure(deployment)
-            return Response({"message": result_message}, status=status.HTTP_200_OK)
-        except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
 
-class ValueMappingViewSet(viewsets.ModelViewSet):
-    queryset = ValueMapping.objects.all()
-    serializer_class = ValueMappingSerializer
-    permission_classes = [IsAuthenticated]
+        # Save YAML file
+        with open(file_path, "w") as yaml_file:
+            yaml.dump(yaml_data, yaml_file, default_flow_style=False)
 
-class ScanResultViewSet(viewsets.ModelViewSet):
-    queryset = ScanResult.objects.all()
-    serializer_class = ScanResultSerializer
-    permission_classes = [IsAuthenticated]
+        return safe_filename, file_path  # Return filename and file path
 
-def execute_garak_scan_openai(integration):
-    try:
-        os.environ['OPENAI_API_KEY'] = integration.api_key
-        yaml_path = os.path.join(settings.MEDIA_ROOT, 'yamls', integration.yaml_name)
-        hitlog_path = yaml_path.replace('.yaml', '.hitlog.jsonl')
+    def post(self, request, *args, **kwargs):
+        generator = request.data.get('generator')
 
-        command = ["garak", "--model_type", "openai", "--model_name", integration.model_name, "--config", yaml_path]
+        if generator == 'openai':
+            serializer = OpenAIScanSerializer(data=request.data)
+            if serializer.is_valid():
+                yaml_filename, _ = self.generate_yaml_file(
+                    serializer.validated_data["scan_name"],
+                    serializer.validated_data["client_name"],
+                    serializer.validated_data["client_app_name"],
+                    serializer.validated_data["attack_name"],
+                )
+                OpenAIDB.objects.create(
+                    user=request.user, 
+                    yaml_file=yaml_filename,
+                    **serializer.validated_data
+                )
+                return Response({"message": "OpenAI scan saved successfully"}, status=status.HTTP_201_CREATED)
 
-        observer_thread = Thread(target=start_file_watch, args=(hitlog_path, integration.user))
-        observer_thread.daemon = True
-        observer_thread.start()
+        elif generator == 'azure':
+            serializer = AzureScanSerializer(data=request.data)
+            if serializer.is_valid():
+                yaml_filename, _ = self.generate_yaml_file(
+                    serializer.validated_data["scan_name"],
+                    serializer.validated_data["client_name"],
+                    serializer.validated_data["client_app_name"],
+                    serializer.validated_data["attack_name"],
+                )
+                AzureDB.objects.create(
+                    user=request.user, 
+                    yaml_file=yaml_filename,
+                    **serializer.validated_data
+                )
+                return Response({"message": "Azure scan saved successfully"}, status=status.HTTP_201_CREATED)
 
-        subprocess.Popen(command)
-        return "Scan started successfully."
-    except Exception as e:
-        raise Exception(f"Error during scan execution: {e}")
-
-def execute_garak_scan_azure(deployment):
-    try:
-        os.environ['AZURE_API_KEY'] = deployment.azure_api_key
-        os.environ['AZURE_ENDPOINT'] = deployment.azure_endpoint_url
-        os.environ['AZURE_MODEL_NAME'] = deployment.azure_model_name
-
-        yaml_path = os.path.join(settings.MEDIA_ROOT, 'yamls', deployment.yaml_name)
-
-        command = ["garak", "--model_type", "azure", "--model_name", deployment.azure_deployment_name, "--config", yaml_path]
-
-        subprocess.Popen(command)
-        return "Scan started successfully."
-    except Exception as e:
-        raise Exception(f"Error during scan execution: {e}")
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

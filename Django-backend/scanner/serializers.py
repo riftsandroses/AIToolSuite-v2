@@ -1,23 +1,12 @@
 from rest_framework import serializers
-from .models import OpenAIIntegration, AzureDeployment, ValueMapping, ScanResult
+from .models import OpenAIDB, AzureDB
 
-class ValueMappingSerializer(serializers.ModelSerializer):
+class OpenAIScanSerializer(serializers.ModelSerializer):
     class Meta:
-        model = ValueMapping
-        fields = '__all__'
+        model = OpenAIDB
+        exclude = ['user', 'created_at']  # Exclude user since we assign it in the view
 
-class ScanResultSerializer(serializers.ModelSerializer):
+class AzureScanSerializer(serializers.ModelSerializer):
     class Meta:
-        model = ScanResult
-        fields = '__all__'
-
-
-class OpenAIIntegrationSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = OpenAIIntegration
-        fields = ['scan_name', 'description', 'model_name', 'api_key']
-
-class AzureDeploymentSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = AzureDeployment
-        fields = ['scan_name', 'description', 'azure_model_name', 'azure_endpoint_url', 'azure_deployment_name', 'azure_api_key']
+        model = AzureDB
+        exclude = ['user', 'created_at']  # Exclude user since we assign it in the view
