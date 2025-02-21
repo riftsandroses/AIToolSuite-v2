@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import classes from "./header.module.css"
 import TabItem from "./TabItem";
 
-const SlideTabs = ({menuItems, newMenu}) => {
+const SlideTabs = ({ menuItems }) => {
   const [position, setPosition] = useState({
     left: 0,
     width: 0,
@@ -20,10 +20,10 @@ const SlideTabs = ({menuItems, newMenu}) => {
       }}
       className={classes.TabContainer}
     >
-      {newMenu.map((menu, index) => (
+      {menuItems.map((menu, index) => (
         <>
           <Tab setPosition={setPosition} key={index}>
-            <TabItem menu={menu}/>
+            <TabItem menu={menu} />
           </Tab>
         </>
       ))}
@@ -36,36 +36,36 @@ const SlideTabs = ({menuItems, newMenu}) => {
 export default SlideTabs
 
 const Tab = ({ children, setPosition }) => {
-    const ref = useRef(null);
-  
-    return (
-      <div
-        ref={ref}
-        onMouseEnter={() => {
-          if (!ref?.current) return;
-  
-          const { width } = ref.current.getBoundingClientRect();
-  
-          setPosition({
-            left: ref.current.offsetLeft,
-            width,
-            opacity: 1,
-          });
-        }}
-        className={classes.tabItem}
-      >
-        {children}
-      </div>
-    );
-  };
-  
-  const Cursor = ({ position }) => {
-    return (
-      <motion.li
-        animate={{
-          ...position,
-        }}
-        className={classes.tabSelector}
-      />
-    );
-  };
+  const ref = useRef(null);
+
+  return (
+    <div
+      ref={ref}
+      onMouseEnter={() => {
+        if (!ref?.current) return;
+
+        const { width } = ref.current.getBoundingClientRect();
+
+        setPosition({
+          left: ref.current.offsetLeft,
+          width,
+          opacity: 1,
+        });
+      }}
+      className={classes.tabItem}
+    >
+      {children}
+    </div>
+  );
+};
+
+const Cursor = ({ position }) => {
+  return (
+    <motion.li
+      animate={{
+        ...position,
+      }}
+      className={classes.tabSelector}
+    />
+  );
+};
