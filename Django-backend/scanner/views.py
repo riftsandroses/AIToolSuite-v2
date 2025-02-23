@@ -19,9 +19,6 @@ ATTACK_MAPPING = {
     "hallucination_rate": "misleading.FalseAssertion50,packagehallucination.JavaScript,packagehallucination.Python,packagehallucination.Ruby,packagehallucination.Rust,snowball.GraphConnectivityMini,snowball.PrimesMini,snowball.SenatorsMini,topic.WordnetControversial",
 }
 
-def remove_emojis(text):
-    return re.sub(r'[\U00010000-\U0010ffff]', '', text)
-
 class ScanAPIView(APIView):
     permission_classes = [permissions.IsAuthenticated]  # Require authentication
 
@@ -55,14 +52,22 @@ class ScanAPIView(APIView):
     def post(self, request, *args, **kwargs):
         generator = request.data.get('generator')
         api_key = request.data.get('api_key')
+        azure_api_key = request.data.get('azure_api_key')
+        azure_model_name = request.data.get('azure_model_name')
+        azure_deployment_name = request.data.get('azure_deployment_name')
+        azure_endpoint_url = request.data.get('azure_endpoint_url')
 
-        if not api_key:
+        if generator == 'openai' and not api_key:
             return Response({"error": "Missing OpenAI API key"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        elif generator == 'azure' and not azure_api_key:
+            return Response({"error": "Missing Azure API key"}, status=status.HTTP_400_BAD_REQUEST)
 
-        os.environ["OPENAI_API_KEY"] = api_key  # Set API key dynamically
-
-        if generator == 'openai':
+        elif generator == 'openai':
             serializer = OpenAIScanSerializer(data=request.data)
+
+            os.environ["OPENAI_API_KEY"] = api_key
+
             if serializer.is_valid():
                 yaml_filename, yaml_path = self.generate_yaml_file(
                     serializer.validated_data["scan_name"],
@@ -73,14 +78,19 @@ class ScanAPIView(APIView):
                 OpenAIDB.objects.create(user=request.user, yaml_file=yaml_filename, **serializer.validated_data)
 
                 # Run the scan asynchronously
-                self.run_garak_scan(yaml_path, serializer.validated_data["model_name"])
+                self.run_garak_scan(yaml_path, serializer.validated_data["model_name"], generator)
 
                 return Response({"message": "Scan initiated"}, status=status.HTTP_202_ACCEPTED)
 
         elif generator == 'azure':
             serializer = AzureScanSerializer(data=request.data)
+
+            os.environ["AZURE_API_KEY"] = azure_api_key
+            os.environ["AZURE_ENDPOINT"] = azure_endpoint_url
+            os.environ["AZURE_MODEL_NAME"] = azure_model_name
+
             if serializer.is_valid():
-                yaml_filename, _ = self.generate_yaml_file(
+                yaml_filename, yaml_path = self.generate_yaml_file(
                     serializer.validated_data["scan_name"],
                     serializer.validated_data["client_name"],
                     serializer.validated_data["client_app_name"],
@@ -88,14 +98,17 @@ class ScanAPIView(APIView):
                 )
                 AzureDB.objects.create(user=request.user, yaml_file=yaml_filename, **serializer.validated_data)
 
+                # Run the scan asynchronously
+                self.run_garak_scan(yaml_path, serializer.validated_data["azure_deployment_name"], generator)
+
                 return Response({"message": "Azure scan saved successfully"}, status=status.HTTP_201_CREATED)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    def run_garak_scan(self, yaml_path, model_name):
+    def run_garak_scan(self, yaml_path, model_name, generator):
         """
         Run Garak asynchronously as a background process.
         """
-        command = ["garak", "--model_type", "openai", "--model_name", model_name, "--config", yaml_path]
+        command = ["garak", "--model_type", generator, "--model_name", model_name, "--config", yaml_path]
 
         subprocess.Popen(command)  # Run in the background
