@@ -168,3 +168,33 @@ REST_FRAMEWORK = {
         'rest_framework.renderers.BrowsableAPIRenderer',  # Enables DRF web UI  
     ),
 }
+
+# Add to your requirements.txt or install manually
+# watchdog==3.0.0
+
+# Add to settings.py
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'file': {
+            'level': 'INFO',
+            'class': 'logging.FileHandler',
+            'filename': os.path.join(BASE_DIR, 'scanner_logs.log'),
+            'formatter': 'verbose',
+        },
+    },
+    'loggers': {
+        'scanner': {
+            'handlers': ['file'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+    },
+}
