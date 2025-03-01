@@ -1,0 +1,13 @@
+1. To start a Celery Worker (aitm Module):
+
+    python -m celery -A AIToolSuite_prod worker -l info
+
+2. To start a Celery Beat (aitm Module):
+
+    python -m celery -A AIToolSuite_prod beat -l info
+
+3. To start Watchdog (scanner Module):
+
+    python manage.py watch_hitlogs
+
+4. Remember to start Redis Service and Docker Engine as well.
