@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     'login',
     'homepage',
     'scanner',
+    'aitm',
 ]
 
 MIDDLEWARE = [
