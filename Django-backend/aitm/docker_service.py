@@ -10,11 +10,11 @@ class DockerService:
     def __init__(self):
         self.client = docker.from_env()
         
-    def create_container(self, user_id, image_name="mrwadams/stridegpt:latest", port=8501):
+    def create_container(self, user_id, image_name="r1971d3_aitm", port=8501):
         """Create a new Docker container for the user"""
         try:
             # Create a unique container name
-            container_name = f"stridegpt_{user_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+            container_name = f"r1971d3_aitm_{user_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
             
             # Set container labels for tracking
             labels = {
