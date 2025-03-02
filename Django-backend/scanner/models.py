@@ -38,3 +38,28 @@ class AzureDB(models.Model):
 
     def __str__(self):
         return f"{self.scan_name} ({self.generator})"
+
+class ScanResult(models.Model):
+    # Link to the parent scan
+    openai_scan = models.ForeignKey(OpenAIDB, on_delete=models.CASCADE, null=True, blank=True)
+    azure_scan = models.ForeignKey(AzureDB, on_delete=models.CASCADE, null=True, blank=True)
+    
+    # Fields from the hitlog.jsonl
+    goal = models.CharField(max_length=255, null=True, blank=True)
+    prompt = models.TextField(null=True, blank=True)
+    output = models.TextField(null=True, blank=True)
+    trigger = models.CharField(max_length=255, null=True, blank=True)
+    score = models.FloatField(null=True, blank=True)
+    run_id = models.CharField(max_length=255, null=True, blank=True)
+    attempt_id = models.CharField(max_length=255, null=True, blank=True)
+    attempt_seq = models.IntegerField(null=True, blank=True)
+    attempt_idx = models.IntegerField(null=True, blank=True)
+    generator = models.CharField(max_length=255, null=True, blank=True)
+    probe = models.CharField(max_length=255, null=True, blank=True)
+    detector = models.CharField(max_length=255, null=True, blank=True)
+    generations_per_prompt = models.IntegerField(null=True, blank=True)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    def __str__(self):
+        return f"Result {self.id} for probe {self.probe}"

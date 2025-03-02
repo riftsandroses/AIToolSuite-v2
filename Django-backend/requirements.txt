@@ -1,0 +1,9 @@
+# Add these to your requirements.txt
+
+# Docker client
+docker==7.0.0
+
+# Celery for background tasks
+celery>=5.3.0
+redis>=4.5.0
+django-celery-beat>=2.5.0
