@@ -1,4 +1,3 @@
-# docker_service.py
 import docker
 import logging
 import random
@@ -121,7 +120,7 @@ class DockerService:
             logger.error(f"Error removing container {container_id}: {str(e)}")
             raise
     
-    def cleanup_expired_containers(self, hours=24):
+    def cleanup_expired_containers(self, hours=168):
         """Remove containers older than specified hours"""
         try:
             cutoff_time = (datetime.now() - timedelta(hours=hours)).isoformat()
