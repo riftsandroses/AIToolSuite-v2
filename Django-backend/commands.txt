@@ -11,3 +11,5 @@
     python manage.py watch_hitlogs
 
 4. Remember to start Redis Service and Docker Engine as well.
+
+5. Set OLLAMA_HOST=0.0.0.0 as environment variable in the system.
