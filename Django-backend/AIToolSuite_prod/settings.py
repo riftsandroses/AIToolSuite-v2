@@ -48,6 +48,7 @@ INSTALLED_APPS = [
     'homepage',
     'scanner',
     'aitm',
+    'scanner_results',
 ]
 
 MIDDLEWARE = [
