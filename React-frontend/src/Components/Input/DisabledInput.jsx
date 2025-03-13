@@ -3,13 +3,13 @@ import { Input as BaseInput } from '@mui/base/Input';
 import { styled } from '@mui/system';
 
 const Input = forwardRef(function CustomInput(props, ref) {
-  // console.log(props.className)
+//   console.log(props.className)
 
 
   return <BaseInput slots={{ input: InputElement }} {...props} ref={ref}  />;
 });
 
-export default function UnstyledInput({ label, placeholder, type = "text", value, handleChange, disabled = false }) {
+export default function DisabledInput({ label, placeholder, type = "text", value }) {
 
   return (
     <Input
@@ -18,9 +18,7 @@ export default function UnstyledInput({ label, placeholder, type = "text", value
       placeholder={placeholder}
       type={type}
       value={value}
-      onChange={(e) => handleChange(label, e.target.value)}
-      disabled ={disabled}
-      // className={!disabled ? "cursor-not-allowed":""}
+      disabled
     />
   )
 }
@@ -57,22 +55,19 @@ const InputElement = styled('input')(
   line-height: 1.5;
   padding: 8px 12px;
   border-radius: 8px;
-  color: white;
+  color: #a8a8a8;
   // background: ${theme.palette.mode === 'dark' ? grey[900] : 'transparent'};
   background:transparent;
   // border: 1px solid ${theme.palette.mode === 'dark' ? grey[700] : grey[200]};
     border: 2px solid #ffffff1a;
+    cursor: not-allowed;
 
   
 
   box-shadow: 0 2px 4px ${theme.palette.mode === 'dark' ? 'rgba(0,0,0, 0.5)' : 'rgba(0,0,0, 0.05)'
     };
 
-  &:hover {
-border-color: #ffffff54;
-      
-
-  }
+ 
 
   &:focus {
     // border-color: ${blue[400]};

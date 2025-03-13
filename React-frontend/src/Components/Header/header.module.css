@@ -6,9 +6,15 @@
     position: fixed;
     display: flex;
     align-items: center;
-    background: #172130;
     font-size: 15px;
     inset: 0px;
+    transition-property: all;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-duration: 200ms;
+}
+
+.headerContainerBg{
+    background: #172130;
 }
 
 .navContainer {

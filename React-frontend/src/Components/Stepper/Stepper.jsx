@@ -5,13 +5,14 @@ const Stepper = ({ steps, section, changeSection }) => {
     return (
         <>
             <div className="w-full flex items-center justify-around space-x-6">
-                {["OpenAI Details", "Attacks", "Review"].map((name, i) => (
-                    <div className="flex flex-col w-full items-center"
+                {steps.map((name, i) => (
+                    <div className="flex flex-col w-full items-center cursor-pointer"
                     // onClick={() => changeSection(i, true)}
+                    key={i}
 
                     >
                         <div
-                            key={i}
+                            // key={i}
                             className={`${(section < i && "bg-gray-900  h-2 ") ||
                                 (section > i && "bg-green-500  h-2") ||
                                 "p-0 bg-green-100 dark:bg-green-900"
@@ -27,7 +28,7 @@ const Stepper = ({ steps, section, changeSection }) => {
                             </>
                             )}
                         </div>
-                        <div className='my-2 text-white font-semibold cursor-pointer'>{name}</div>
+                        <div className='my-2 text-white font-semibold'>{name}</div>
                     </div>
                 ))}
             </div>

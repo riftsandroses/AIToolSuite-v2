@@ -22,8 +22,8 @@ const SlideTabs = ({ menuItems }) => {
     >
       {menuItems.map((menu, index) => (
         <>
-          <Tab setPosition={setPosition} key={index}>
-            <TabItem menu={menu} />
+          <Tab setPosition={setPosition} index={index}>
+            <TabItem menu={menu} index={index}/>
           </Tab>
         </>
       ))}
@@ -35,11 +35,12 @@ const SlideTabs = ({ menuItems }) => {
 
 export default SlideTabs
 
-const Tab = ({ children, setPosition }) => {
+const Tab = ({ children, setPosition, index }) => {
   const ref = useRef(null);
 
   return (
     <div
+      key={index}
       ref={ref}
       onMouseEnter={() => {
         if (!ref?.current) return;

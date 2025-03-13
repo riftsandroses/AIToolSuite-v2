@@ -10,70 +10,70 @@ import { PopupContext } from '@mui/base/Unstable_Popup';
 export default function Dropdown({ label, options, value, handleChange }) {
 
 
-    const Select = React.forwardRef(function CustomSelect(props, ref) {
-        const slots = {
-            root: StyledButton,
-            listbox: AnimatedListbox,
-            popup: Popup,
-            ...props.slots,
-        };
-
-        return <BaseSelect {...props} ref={ref} slots={slots} />;
-    });
-
-    Select.propTypes = {
-        /**
-         * The components used for each slot inside the Select.
-         * Either a string to use a HTML element or a component.
-         * @default {}
-         */
-        slots: PropTypes.shape({
-            listbox: PropTypes.elementType,
-            popup: PropTypes.elementType,
-            root: PropTypes.elementType,
-        }),
+  const Select = React.forwardRef(function CustomSelect(props, ref) {
+    const slots = {
+      root: StyledButton,
+      listbox: AnimatedListbox,
+      popup: Popup,
+      ...props.slots,
     };
 
-    const blue = {
-        100: '#DAECFF',
-        200: '#99CCF3',
-        400: '#3399FF',
-        500: '#007FFF',
-        600: '#0072E5',
-        700: '#0059B2',
-        900: '#003A75',
-    };
+    return <BaseSelect {...props} ref={ref} slots={slots} />;
+  });
 
-    const grey = {
-        50: '#F3F6F9',
-        100: '#E5EAF2',
-        200: '#DAE2ED',
-        300: '#C7D0DD',
-        400: '#B0B8C4',
-        500: '#9DA8B7',
-        600: '#6B7A90',
-        700: '#434D5B',
-        800: '#303740',
-        900: '#1C2025',
-    };
+  Select.propTypes = {
+    /**
+     * The components used for each slot inside the Select.
+     * Either a string to use a HTML element or a component.
+     * @default {}
+     */
+    slots: PropTypes.shape({
+      listbox: PropTypes.elementType,
+      popup: PropTypes.elementType,
+      root: PropTypes.elementType,
+    }),
+  };
 
-    const Button = React.forwardRef(function Button(props, ref) {
-        const { ownerState, ...other } = props;
-        return (
-            <button type="button" id={label} {...other} ref={ref}>
-                {other.children}
-                <UnfoldMoreRoundedIcon />
-            </button>
-        );
-    });
+  const blue = {
+    100: '#DAECFF',
+    200: '#99CCF3',
+    400: '#3399FF',
+    500: '#007FFF',
+    600: '#0072E5',
+    700: '#0059B2',
+    900: '#003A75',
+  };
 
-    Button.propTypes = {
-        children: PropTypes.node,
-        ownerState: PropTypes.object.isRequired,
-    };
+  const grey = {
+    50: '#F3F6F9',
+    100: '#E5EAF2',
+    200: '#DAE2ED',
+    300: '#C7D0DD',
+    400: '#B0B8C4',
+    500: '#9DA8B7',
+    600: '#6B7A90',
+    700: '#434D5B',
+    800: '#303740',
+    900: '#1C2025',
+  };
 
-    const StyledButton = styled(Button, { shouldForwardProp: () => true })(
-        ({ theme }) => `
+  const Button = React.forwardRef(function Button(props, ref) {
+    const { ownerState, ...other } = props;
+    return (
+      <button type="button" id={label} {...other} ref={ref}>
+        {other.children}
+        <UnfoldMoreRoundedIcon />
+      </button>
+    );
+  });
+
+  Button.propTypes = {
+    children: PropTypes.node,
+    ownerState: PropTypes.object.isRequired,
+  };
+
+  const StyledButton = styled(Button, { shouldForwardProp: () => true })(
+    ({ theme }) => `
   font-family: 'IBM Plex Sans', sans-serif;
   font-size: 0.875rem;
   box-sizing: border-box;
@@ -112,10 +112,10 @@ export default function Dropdown({ label, options, value, handleChange }) {
     right: 10px;
   }
   `,
-    );
+  );
 
-    const Listbox = styled('ul')(
-        ({ theme }) => `
+  const Listbox = styled('ul')(
+    ({ theme }) => `
   font-family: 'IBM Plex Sans', sans-serif;
   font-size: 0.875rem;
   box-sizing: border-box;
@@ -130,7 +130,7 @@ background: white;
 //   border: 1px solid ${theme.palette.mode === 'dark' ? grey[700] : grey[200]};
   color: black;
   box-shadow: 0 2px 4px ${theme.palette.mode === 'dark' ? 'rgba(0,0,0, 0.5)' : 'rgba(0,0,0, 0.05)'
-            };
+      };
   
   .closed & {
     opacity: 0;
@@ -152,37 +152,37 @@ background: white;
     transform-origin: top;
   }
   `,
+  );
+
+  const AnimatedListbox = React.forwardRef(function AnimatedListbox(props, ref) {
+    const { ownerState, ...other } = props;
+    const popupContext = React.useContext(PopupContext);
+
+    if (popupContext == null) {
+      throw new Error(
+        'The `AnimatedListbox` component cannot be rendered outside a `Popup` component',
+      );
+    }
+
+    const verticalPlacement = popupContext.placement.split('-')[0];
+
+    return (
+      <CssTransition
+        className={`placement-${verticalPlacement}`}
+        enterClassName="open"
+        exitClassName="closed"
+      >
+        <Listbox {...other} ref={ref} />
+      </CssTransition>
     );
+  });
 
-    const AnimatedListbox = React.forwardRef(function AnimatedListbox(props, ref) {
-        const { ownerState, ...other } = props;
-        const popupContext = React.useContext(PopupContext);
+  AnimatedListbox.propTypes = {
+    ownerState: PropTypes.object.isRequired,
+  };
 
-        if (popupContext == null) {
-            throw new Error(
-                'The `AnimatedListbox` component cannot be rendered outside a `Popup` component',
-            );
-        }
-
-        const verticalPlacement = popupContext.placement.split('-')[0];
-
-        return (
-            <CssTransition
-                className={`placement-${verticalPlacement}`}
-                enterClassName="open"
-                exitClassName="closed"
-            >
-                <Listbox {...other} ref={ref} />
-            </CssTransition>
-        );
-    });
-
-    AnimatedListbox.propTypes = {
-        ownerState: PropTypes.object.isRequired,
-    };
-
-    const Option = styled(BaseOption)(
-        ({ theme }) => `
+  const Option = styled(BaseOption)(
+    ({ theme }) => `
   list-style: none;
   padding: 8px;
   border-radius: 8px;
@@ -220,19 +220,19 @@ background: white;
     color: ${theme.palette.mode === 'dark' ? grey[300] : grey[900]};
   }
   `,
-    );
+  );
 
-    const Popup = styled('div')`
+  const Popup = styled('div')`
   z-index: 1;
 `;
 
 
-    return (
-        <Select defaultValue={""} value={value} onChange={(e, newValue) => handleChange(label,newValue)}>
-            {!value && <Option disabled value="">Select an option</Option>}
-            {options.map((option, index) => (
-                <Option key={index} value={option.value}>{option.name}</Option>
-            ))}
-        </Select>
-    );
+  return (
+    <Select defaultValue={""} value={value} onChange={(e, newValue) => handleChange(label, newValue)}>
+      {!value && <Option disabled value="">Select an option</Option>}
+      {options.map((option, index) => (
+        <Option key={index} value={option.value}>{option.name}</Option>
+      ))}
+    </Select>
+  );
 }

@@ -2,9 +2,10 @@ import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { motion } from "framer-motion";
 import classes from "./header.module.css"
+import { Link } from "react-router";
 
 
-const TabItem = ({ menu }) => {
+const TabItem = ({ menu, index }) => {
     const [isHover, toggleHover] = useState(false);
     const toggleHoverMenu = () => {
         toggleHover(!isHover);
@@ -41,14 +42,15 @@ const TabItem = ({ menu }) => {
                 toggleHoverMenu();
             }}
             onHoverEnd={toggleHoverMenu}
-            key={menu.name}
+            // key={menu.name}
+            key={index}
         >
-            <span className={classes.tabName}>
+            <Link to={menu.path} className={classes.tabName}>
                 {menu.tabName}
                 {hasSubMenu && (
                     <ChevronDown className="mt-[0.6px] group-hover/link:rotate-180 duration-200" />
                 )}
-            </span>
+            </Link>
             {hasSubMenu && (
                 <motion.div
                     className={classes.subMenuContainer}
@@ -66,7 +68,7 @@ const TabItem = ({ menu }) => {
                                         </p>
                                         {subMenu.options.map((subMenuItem, index) => {
                                             return (
-                                                <div className={`${classes.subMenuItem} group/menubox`} key={index}>
+                                                <Link to={subMenuItem.path}   className={`${classes.subMenuItem} group/menubox`} key={index}>
                                                     <div className="bg-white/5 w-fit p-2 mr-2 rounded-md group-hover/menubox:bg-white group-hover/menubox:text-gray-900 duration-300">
                                                         {subMenuItem.icon && <subMenuItem.icon />}
                                                     </div>
@@ -74,7 +76,7 @@ const TabItem = ({ menu }) => {
                                                         <h6 className="font-semibold">{subMenuItem.name}</h6>
                                                         <p className="text-sm text-gray-400">{subMenuItem.desc}</p>
                                                     </div>
-                                                </div>
+                                                </Link>
                                             )
                                         })}
                                     </div>
