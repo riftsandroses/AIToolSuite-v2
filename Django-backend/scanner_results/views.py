@@ -63,6 +63,9 @@ class ScanResultsViewSet(viewsets.ViewSet):
                             "control_observation": control.control_observation,
                             "control_impact": control.control_impact,
                             "control_recommendation": control.control_recommendation,
+                            "severity": control.severity,
+                            "owasp_top_10_for_llms": control.owasp_top_10_for_llms,
+                            "mitre_atlas": control.mitre_atlas,
                         })
                 except ProbeControlMapping.DoesNotExist:
                     # No mapping found for this probe
@@ -72,6 +75,9 @@ class ScanResultsViewSet(viewsets.ViewSet):
                         "control_observation": None,
                         "control_impact": None,
                         "control_recommendation": None,
+                        "severity": None,
+                        "owasp_top_10_for_llms": None,
+                        "mitre_atlas": None,
                     })
                 
                 formatted_results.append(result_data)
@@ -124,6 +130,9 @@ class ScanResultsViewSet(viewsets.ViewSet):
                             "control_observation": control.control_observation,
                             "control_impact": control.control_impact,
                             "control_recommendation": control.control_recommendation,
+                            "severity": control.severity,
+                            "owasp_top_10_for_llms": control.owasp_top_10_for_llms,
+                            "mitre_atlas": control.mitre_atlas,
                         })
                 except ProbeControlMapping.DoesNotExist:
                     # No mapping found for this probe
@@ -133,6 +142,9 @@ class ScanResultsViewSet(viewsets.ViewSet):
                         "control_observation": None,
                         "control_impact": None,
                         "control_recommendation": None,
+                        "severity": None,
+                        "owasp_top_10_for_llms": None,
+                        "mitre_atlas": None,
                     })
                 
                 formatted_results.append(result_data)

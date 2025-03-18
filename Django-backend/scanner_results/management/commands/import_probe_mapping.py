@@ -26,7 +26,10 @@ class Command(BaseCommand):
                     control_description=row['Control Description'],
                     control_observation=row['Control Observation'],
                     control_impact=row['Control Impact'],
-                    control_recommendation=row['Control Recommendation']
+                    control_recommendation=row['Control Recommendation'],
+                    severity=row['Severity'],
+                    owasp_top_10_for_llms=row['OWASP Top 10 for LLMs'],
+                    mitre_atlas=row['MITRE ATLAS']
                 )
             
             self.stdout.write(self.style.SUCCESS(f'Successfully imported {len(df)} probe mappings'))

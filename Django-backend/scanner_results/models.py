@@ -10,6 +10,9 @@ class ProbeControlMapping(models.Model):
     control_observation = models.TextField()
     control_impact = models.TextField()
     control_recommendation = models.TextField()
+    severity = models.TextField(null=True, blank=True)
+    owasp_top_10_for_llms = models.TextField(null=True, blank=True)
+    mitre_atlas = models.TextField(null=True, blank=True)
 
     def __str__(self):
         return self.probe_name
@@ -28,6 +31,9 @@ class ScanResultView(models.Model):
     control_observation = models.TextField(null=True, blank=True)
     control_impact = models.TextField(null=True, blank=True)
     control_recommendation = models.TextField(null=True, blank=True)
+    severity = models.TextField(null=True, blank=True)
+    owasp_top_10_for_llms = models.TextField(null=True, blank=True)
+    mitre_atlas = models.TextField(null=True, blank=True)
 
     class Meta:
         managed = False  # Django won't create a table for this model
