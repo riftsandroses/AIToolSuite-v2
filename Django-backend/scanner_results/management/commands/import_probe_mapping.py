@@ -23,6 +23,7 @@ class Command(BaseCommand):
                 ProbeControlMapping.objects.create(
                     probe_name=row['Probe Name'],
                     control_title=row['Control Title'],
+                    control_category=row['Control Category'],
                     control_description=row['Control Description'],
                     control_observation=row['Control Observation'],
                     control_impact=row['Control Impact'],

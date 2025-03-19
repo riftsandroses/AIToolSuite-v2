@@ -1,0 +1,6 @@
+plugins:
+  detector_spec: auto
+  probe_spec: av_spam_scanning.EICAR
+reporting:
+  report_dir: C:\Users\Utkarsh\Downloads\AIToolSuite-v2\Django-backend\media\yaml
+  report_prefix: Test_Scan_Azure_Client_A_App_B_d58e8654

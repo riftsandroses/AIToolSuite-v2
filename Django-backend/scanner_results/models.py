@@ -6,6 +6,7 @@ class ProbeControlMapping(models.Model):
     """
     probe_name = models.CharField(max_length=255, unique=True)
     control_title = models.CharField(max_length=255)
+    control_category = models.TextField(null=True, blank=True)
     control_description = models.TextField()
     control_observation = models.TextField()
     control_impact = models.TextField()
@@ -27,6 +28,7 @@ class ScanResultView(models.Model):
     prompt = models.TextField()
     output = models.TextField()
     control_title = models.CharField(max_length=255, null=True, blank=True)
+    control_category = models.TextField(null=True, blank=True)
     control_description = models.TextField(null=True, blank=True)
     control_observation = models.TextField(null=True, blank=True)
     control_impact = models.TextField(null=True, blank=True)

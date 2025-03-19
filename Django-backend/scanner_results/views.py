@@ -59,6 +59,7 @@ class ScanResultsViewSet(viewsets.ViewSet):
                         control = ProbeControlMapping.objects.get(probe_name=result.probe)
                         result_data.update({
                             "control_title": control.control_title,
+                            "control_category": control.control_category,
                             "control_description": control.control_description,
                             "control_observation": control.control_observation,
                             "control_impact": control.control_impact,
@@ -71,6 +72,7 @@ class ScanResultsViewSet(viewsets.ViewSet):
                     # No mapping found for this probe
                     result_data.update({
                         "control_title": None,
+                        "control_category": None,
                         "control_description": None,
                         "control_observation": None,
                         "control_impact": None,
@@ -126,6 +128,7 @@ class ScanResultsViewSet(viewsets.ViewSet):
                         control = ProbeControlMapping.objects.get(probe_name=result.probe)
                         result_data.update({
                             "control_title": control.control_title,
+                            "control_category": control.control_category,
                             "control_description": control.control_description,
                             "control_observation": control.control_observation,
                             "control_impact": control.control_impact,
@@ -138,6 +141,7 @@ class ScanResultsViewSet(viewsets.ViewSet):
                     # No mapping found for this probe
                     result_data.update({
                         "control_title": None,
+                        "control_category": None,
                         "control_description": None,
                         "control_observation": None,
                         "control_impact": None,
