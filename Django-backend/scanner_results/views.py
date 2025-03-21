@@ -5,6 +5,7 @@ from rest_framework.response import Response
 from .models import ProbeControlMapping
 from .serializers import ProbeControlMappingSerializer
 from scanner.models import OpenAIDB, AzureDB, ScanResult
+from django.db.models import Count
 
 class ProbeControlMappingViewSet(viewsets.ModelViewSet):
     """
@@ -198,3 +199,245 @@ class ScanResultsViewSet(viewsets.ViewSet):
             })
         
         return Response({"scans": scan_list})
+    
+    @action(detail=False, methods=['get'])
+    def severity_counts_openai(self, request):
+        """
+        Get severity counts for a specific OpenAI scan
+        """
+        scan_id = request.query_params.get('id')
+        
+        if not scan_id:
+            return Response({"error": "id parameter is required"}, 
+                           status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            # Get the OpenAIDB scan
+            scan = OpenAIDB.objects.get(id=scan_id)
+            
+            # Get all results for this scan
+            results = ScanResult.objects.filter(openai_scan=scan)
+            
+            # Initialize counts
+            severity_counts = {
+                "High": 0,
+                "Medium": 0,
+                "Low": 0,
+                "Unknown": 0
+            }
+            
+            # Count severities
+            for result in results:
+                try:
+                    if result.probe:
+                        control = ProbeControlMapping.objects.get(probe_name=result.probe)
+                        if control.severity:
+                            severity = control.severity.capitalize()
+                            if severity in severity_counts:
+                                severity_counts[severity] += 1
+                            else:
+                                severity_counts["Unknown"] += 1
+                        else:
+                            severity_counts["Unknown"] += 1
+                except ProbeControlMapping.DoesNotExist:
+                    severity_counts["Unknown"] += 1
+            
+            # Format for graph
+            graph_data = [
+                {"severity": "High", "count": severity_counts["High"]},
+                {"severity": "Medium", "count": severity_counts["Medium"]},
+                {"severity": "Low", "count": severity_counts["Low"]}
+            ]
+            
+            # Only include Unknown if there are any
+            if severity_counts["Unknown"] > 0:
+                graph_data.append({"severity": "Unknown", "count": severity_counts["Unknown"]})
+            
+            return Response({
+                "scan_name": scan.scan_name,
+                "client_name": scan.client_name,
+                "severity_data": graph_data
+            })
+            
+        except OpenAIDB.DoesNotExist:
+            return Response({"error": "Scan not found"}, status=status.HTTP_404_NOT_FOUND)
+    
+    @action(detail=False, methods=['get'])
+    def severity_counts_azure(self, request):
+        """
+        Get severity counts for a specific Azure scan
+        """
+        scan_id = request.query_params.get('id')
+        
+        if not scan_id:
+            return Response({"error": "id parameter is required"}, 
+                           status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            # Get the AzureDB scan
+            scan = AzureDB.objects.get(id=scan_id)
+            
+            # Get all results for this scan
+            results = ScanResult.objects.filter(azure_scan=scan)
+            
+            # Initialize counts
+            severity_counts = {
+                "High": 0,
+                "Medium": 0,
+                "Low": 0,
+                "Unknown": 0
+            }
+            
+            # Count severities
+            for result in results:
+                try:
+                    if result.probe:
+                        control = ProbeControlMapping.objects.get(probe_name=result.probe)
+                        if control.severity:
+                            severity = control.severity.capitalize()
+                            if severity in severity_counts:
+                                severity_counts[severity] += 1
+                            else:
+                                severity_counts["Unknown"] += 1
+                        else:
+                            severity_counts["Unknown"] += 1
+                except ProbeControlMapping.DoesNotExist:
+                    severity_counts["Unknown"] += 1
+            
+            # Format for graph
+            graph_data = [
+                {"severity": "High", "count": severity_counts["High"]},
+                {"severity": "Medium", "count": severity_counts["Medium"]},
+                {"severity": "Low", "count": severity_counts["Low"]}
+            ]
+            
+            # Only include Unknown if there are any
+            if severity_counts["Unknown"] > 0:
+                graph_data.append({"severity": "Unknown", "count": severity_counts["Unknown"]})
+            
+            return Response({
+                "scan_name": scan.scan_name,
+                "client_name": scan.client_name,
+                "severity_data": graph_data
+            })
+            
+        except AzureDB.DoesNotExist:
+            return Response({"error": "Scan not found"}, status=status.HTTP_404_NOT_FOUND)
+        
+    @action(detail=False, methods=['get'])
+    def category_distribution_openai(self, request):
+        """
+        Get control category distribution for a specific OpenAI scan
+        """
+        scan_id = request.query_params.get('id')
+        
+        if not scan_id:
+            return Response({"error": "id parameter is required"}, 
+                        status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            # Get the OpenAIDB scan
+            scan = OpenAIDB.objects.get(id=scan_id)
+            
+            # Get all results for this scan
+            results = ScanResult.objects.filter(openai_scan=scan)
+            
+            # Count categories
+            category_counts = {}
+            total_with_category = 0
+            
+            for result in results:
+                try:
+                    if result.probe:
+                        control = ProbeControlMapping.objects.get(probe_name=result.probe)
+                        if control.control_category:
+                            category = control.control_category
+                            if category in category_counts:
+                                category_counts[category] += 1
+                            else:
+                                category_counts[category] = 1
+                            total_with_category += 1
+                except ProbeControlMapping.DoesNotExist:
+                    continue
+            
+            # Calculate percentages and format for graph
+            category_data = []
+            for category, count in category_counts.items():
+                percentage = round((count / total_with_category * 100), 1) if total_with_category > 0 else 0
+                category_data.append({
+                    "category": category,
+                    "count": count,
+                    "percentage": percentage
+                })
+            
+            # Sort by count in descending order
+            category_data = sorted(category_data, key=lambda x: x["count"], reverse=True)
+            
+            return Response({
+                "scan_name": scan.scan_name,
+                "client_name": scan.client_name,
+                "total_vulnerabilities": total_with_category,
+                "category_data": category_data
+            })
+            
+        except OpenAIDB.DoesNotExist:
+            return Response({"error": "Scan not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    @action(detail=False, methods=['get'])
+    def category_distribution_azure(self, request):
+        """
+        Get control category distribution for a specific Azure scan
+        """
+        scan_id = request.query_params.get('id')
+        
+        if not scan_id:
+            return Response({"error": "id parameter is required"}, 
+                        status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            # Get the AzureDB scan
+            scan = AzureDB.objects.get(id=scan_id)
+            
+            # Get all results for this scan
+            results = ScanResult.objects.filter(azure_scan=scan)
+            
+            # Count categories
+            category_counts = {}
+            total_with_category = 0
+            
+            for result in results:
+                try:
+                    if result.probe:
+                        control = ProbeControlMapping.objects.get(probe_name=result.probe)
+                        if control.control_category:
+                            category = control.control_category
+                            if category in category_counts:
+                                category_counts[category] += 1
+                            else:
+                                category_counts[category] = 1
+                            total_with_category += 1
+                except ProbeControlMapping.DoesNotExist:
+                    continue
+            
+            # Calculate percentages and format for graph
+            category_data = []
+            for category, count in category_counts.items():
+                percentage = round((count / total_with_category * 100), 1) if total_with_category > 0 else 0
+                category_data.append({
+                    "category": category,
+                    "count": count,
+                    "percentage": percentage
+                })
+            
+            # Sort by count in descending order
+            category_data = sorted(category_data, key=lambda x: x["count"], reverse=True)
+            
+            return Response({
+                "scan_name": scan.scan_name,
+                "client_name": scan.client_name,
+                "total_vulnerabilities": total_with_category,
+                "category_data": category_data
+            })
+            
+        except AzureDB.DoesNotExist:
+            return Response({"error": "Scan not found"}, status=status.HTTP_404_NOT_FOUND)
