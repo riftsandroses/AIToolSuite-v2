@@ -51,7 +51,7 @@ class ScanResultsViewSet(viewsets.ViewSet):
         
         try:
             # Get the OpenAIDB scan
-            scan = OpenAIDB.objects.get(id=scan_id)
+            scan = OpenAIDB.objects.get(id=scan_id, user=request.user)
             
             # Get all results for this scan
             results = ScanResult.objects.filter(openai_scan=scan)
@@ -119,7 +119,7 @@ class ScanResultsViewSet(viewsets.ViewSet):
         
         try:
             # Get the AzureDB scan
-            scan = AzureDB.objects.get(id=scan_id)
+            scan = AzureDB.objects.get(id=scan_id, user=request.user)
             
             # Get all results for this scan
             results = ScanResult.objects.filter(azure_scan=scan)
@@ -180,7 +180,7 @@ class ScanResultsViewSet(viewsets.ViewSet):
         """
         Get a list of all OpenAI scans
         """
-        scans = OpenAIDB.objects.all().order_by('-created_at')
+        scans = OpenAIDB.objects.filter(user=request.user).order_by('-created_at')
         
         scan_list = []
         for scan in scans:
@@ -200,7 +200,7 @@ class ScanResultsViewSet(viewsets.ViewSet):
         """
         Get a list of all Azure scans
         """
-        scans = AzureDB.objects.all().order_by('-created_at')
+        scans = AzureDB.objects.filter(user=request.user).order_by('-created_at')
         
         scan_list = []
         for scan in scans:
@@ -229,7 +229,7 @@ class ScanResultsViewSet(viewsets.ViewSet):
         
         try:
             # Get the OpenAIDB scan
-            scan = OpenAIDB.objects.get(id=scan_id)
+            scan = OpenAIDB.objects.get(id=scan_id, user=request.user)
             
             # Get all results for this scan
             results = ScanResult.objects.filter(openai_scan=scan)
@@ -291,7 +291,7 @@ class ScanResultsViewSet(viewsets.ViewSet):
         
         try:
             # Get the AzureDB scan
-            scan = AzureDB.objects.get(id=scan_id)
+            scan = AzureDB.objects.get(id=scan_id, user=request.user)
             
             # Get all results for this scan
             results = ScanResult.objects.filter(azure_scan=scan)
@@ -353,7 +353,7 @@ class ScanResultsViewSet(viewsets.ViewSet):
         
         try:
             # Get the OpenAIDB scan
-            scan = OpenAIDB.objects.get(id=scan_id)
+            scan = OpenAIDB.objects.get(id=scan_id, user=request.user)
             
             # Get all results for this scan
             results = ScanResult.objects.filter(openai_scan=scan)
@@ -412,7 +412,7 @@ class ScanResultsViewSet(viewsets.ViewSet):
         
         try:
             # Get the AzureDB scan
-            scan = AzureDB.objects.get(id=scan_id)
+            scan = AzureDB.objects.get(id=scan_id,user=request.user)
             
             # Get all results for this scan
             results = ScanResult.objects.filter(azure_scan=scan)
@@ -638,7 +638,7 @@ class ScanResultsViewSet(viewsets.ViewSet):
         
         try:
             # Get the OpenAIDB scan
-            scan = OpenAIDB.objects.get(id=scan_id)
+            scan = OpenAIDB.objects.get(id=scan_id, user=request.user)
             
             # Get all results for this scan with control mappings
             results = []
@@ -742,7 +742,7 @@ class ScanResultsViewSet(viewsets.ViewSet):
         
         try:
             # Get the AzureDB scan
-            scan = AzureDB.objects.get(id=scan_id)
+            scan = AzureDB.objects.get(id=scan_id, user=request.user)
             
             # Get all results for this scan with control mappings
             results = []
@@ -858,11 +858,11 @@ class ScanResultsViewSet(viewsets.ViewSet):
         try:
             # Get the scan and its results based on type
             if scan_type == 'openai':
-                scan = OpenAIDB.objects.get(id=scan_id)
+                scan = OpenAIDB.objects.get(id=scan_id, user=request.user)
                 scan_results = ScanResult.objects.filter(openai_scan=scan)
                 scan_model = scan.model_name
             else:  # azure
-                scan = AzureDB.objects.get(id=scan_id)
+                scan = AzureDB.objects.get(id=scan_id, user=request.user)
                 scan_results = ScanResult.objects.filter(azure_scan=scan)
                 scan_model = scan.azure_model_name
             
