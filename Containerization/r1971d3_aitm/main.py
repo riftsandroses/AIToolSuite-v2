@@ -16,6 +16,11 @@ from mitigations import create_mitigations_prompt, get_mitigations, get_mitigati
 from test_cases import create_test_cases_prompt, get_test_cases, get_test_cases_azure, get_test_cases_google, get_test_cases_mistral, get_test_cases_ollama, get_test_cases_anthropic, get_test_cases_lm_studio, get_test_cases_groq
 from dread import create_dread_assessment_prompt, get_dread_assessment, get_dread_assessment_azure, get_dread_assessment_google, get_dread_assessment_mistral, get_dread_assessment_ollama, get_dread_assessment_anthropic, get_dread_assessment_lm_studio, get_dread_assessment_groq, dread_json_to_markdown
 
+from classes.threat_model_fl import ThreatModelCl
+from classes.control_matrix_fl import ControlMatrixCl
+from classes.attack_tree_fl import AttackTreeCl
+from classes.mark_down_fl import MarkDownCl
+
 # ------------------ Helper Functions ------------------ #
 def get_ollama_models(ollama_endpoint):
     """
@@ -207,7 +212,7 @@ with st.sidebar:
 
 # ------------------ Main App UI ------------------ #
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["Threat Model", "Attack Tree", "Mitigations", "DREAD", "Test Cases"])
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Threat Model", "Attack Tree", "Mitigations", "DREAD", "Test Cases", "PASTA"])
 
 with tab1:
     st.markdown("""
@@ -635,3 +640,224 @@ scenarios.
             )
         else:
             st.error("Please generate a threat model first before requesting test cases.")
+
+# PASTA Tab
+with tab6:
+    # Get application description from the user
+    pasta_app_input = st.text_area(
+        label="Describe the application to be modelled",
+        placeholder="Enter your application details...",
+        height=150,
+        key="pasta_app_input",
+        help="Please provide a detailed description of the application, including the purpose, technologies used, and other relevant information.",
+    )
+
+    # Create two columns layout for input fields
+    col1, col2 = st.columns(2)
+
+    # Create input fields for app_type, sensitive_data and pam
+    with col1:
+        pasta_app_type = st.selectbox(
+            label="Select the application type",
+            options=[
+                "Web application",
+                "Mobile application",
+                "Desktop application",
+                "Cloud application",
+                "IoT application",
+                "Other",
+            ],
+            key="pasta_app_type",
+        )
+
+        pasta_sensitive_data = st.selectbox(
+            label="What is the highest sensitivity level of the data processed by the application?",
+            options=[
+                "Top Secret",
+                "Secret",
+                "Confidential",
+                "Restricted",
+                "Unclassified",
+                "None",
+            ],
+            key="pasta_sensitive_data",
+        )
+
+        pasta_pam = st.selectbox(
+            label="Are privileged accounts stored in a Privileged Access Management (PAM) solution?",
+            options=["Yes", "No"],
+            key="pasta_pam",
+        )
+
+    # Create input fields for internet_facing and authentication
+    with col2:
+        pasta_internet_facing = st.selectbox(
+            label="Is the application internet-facing?",
+            options=["Yes", "No"],
+            key="pasta_internet_facing",
+        )
+
+        pasta_authentication = st.multiselect(
+            "What authentication methods are supported by the application?",
+            ["SSO", "MFA", "OAUTH2", "Basic", "None"],
+            key="pasta_authentication",
+        )
+
+    # Threat Model, Security Controls, and Attack Tree sub-tabs
+    pasta_tab1, pasta_tab2, pasta_tab3 = st.tabs(["Threat Model", "Security Controls", "MITRE Attack Tree"])
+    
+    # Initialize classes
+    threat_model_obj = ThreatModelCl()
+    control_matrix_obj = ControlMatrixCl()
+    attack_tree_obj = AttackTreeCl()
+    markdown_obj = MarkDownCl()
+
+    # Threat Model Sub-Tab
+    with pasta_tab1:
+        if st.button("Generate Threat Model", key="pasta_threat_model_btn"):
+            if not pasta_app_input:
+                st.error("Please enter your application details before submitting.")
+            else:
+                # Generate the prompt using the create_prompt function
+                threat_model_prompt = threat_model_obj.create_threat_model_prompt(
+                    app_type=pasta_app_type, 
+                    authentication=pasta_authentication, 
+                    internet_facing=pasta_internet_facing, 
+                    sensitive_data=pasta_sensitive_data, 
+                    pam=pasta_pam, 
+                    app_input=pasta_app_input
+                )
+
+                # Show a spinner while generating the threat model
+                with st.spinner("Analysing potential threats..."):
+                    try:
+                        # Check which model provider is selected from the main sidebar
+                        if model_provider == "OpenAI API":
+                            model_output = threat_model_obj.get_threat_model(
+                                st.session_state['openai_api_key'], 
+                                selected_model, 
+                                threat_model_prompt
+                            )
+                        
+                        # Access the threat model and improvement suggestions from the parsed content
+                        threat_model = model_output.get("threat_model", [])
+                        improvement_suggestions = model_output.get("improvement_suggestions", [])
+
+                        # Convert the threat model JSON to Markdown
+                        markdown_output = markdown_obj.json_to_markdown(threat_model, improvement_suggestions)
+
+                        # Display the threat model in Markdown
+                        st.markdown(markdown_output)
+
+                        # Add a button to allow the user to download the output as a Markdown file
+                        st.download_button(
+                            label="Download Threat Model",
+                            data=markdown_output,
+                            file_name="pasta_gpt_threat_model.md",
+                            mime="text/markdown",
+                        )
+
+                    except Exception as e:
+                        st.error(f"Error generating threat model: {e}")
+
+    # Security Controls Sub-Tab
+    with pasta_tab2:
+        if st.button("Generate Security Controls", key="pasta_control_matrix_btn"):
+            if not pasta_app_input:
+                st.error("Please enter your application details before submitting.")
+            else:
+                # Generate the prompt using the create_prompt function
+                control_matrix_prompt = control_matrix_obj.create_control_matrix_prompt(
+                    app_type=pasta_app_type, 
+                    authentication=pasta_authentication, 
+                    internet_facing=pasta_internet_facing, 
+                    sensitive_data=pasta_sensitive_data, 
+                    pam=pasta_pam, 
+                    app_input=pasta_app_input
+                )
+
+                # Show a spinner while generating the control matrix
+                with st.spinner("Preparing security controls..."):
+                    try:
+                        # Check which model provider is selected from the main sidebar
+                        if model_provider == "OpenAI API":
+                            model_output = control_matrix_obj.get_control_matrix(
+                                st.session_state['openai_api_key'], 
+                                selected_model, 
+                                control_matrix_prompt
+                            )
+                        
+                        # Access the control matrix and improvement suggestions from the parsed content
+                        control_matrix = model_output.get("control_matrix", [])
+                        improvement_suggestions = model_output.get("improvement_suggestions", [])
+
+                        # Convert the control matrix JSON to Markdown
+                        markdown_output = markdown_obj.json_to_markdown_control(control_matrix, improvement_suggestions)
+
+                        # Display the control matrix in Markdown
+                        st.markdown(markdown_output)
+
+                        # Add a button to allow the user to download the output as a Markdown file
+                        st.download_button(
+                            label="Download Control Matrix",
+                            data=markdown_output,
+                            file_name="control_matrix_model.md",
+                            mime="text/markdown",
+                        )
+
+                    except Exception as e:
+                        st.error(f"Error generating control matrix: {e}")
+
+    # MITRE Attack Tree Sub-Tab
+    with pasta_tab3:
+        if st.button("Generate MITRE Attack Tree", key="pasta_attack_tree_btn"):
+            if not pasta_app_input:
+                st.error("Please enter your application details before submitting.")
+            else:
+                # Generate the prompt using the create_attack_tree_prompt function
+                attack_tree_prompt = attack_tree_obj.create_attack_tree_prompt(
+                    app_type=pasta_app_type, 
+                    authentication=pasta_authentication, 
+                    internet_facing=pasta_internet_facing, 
+                    sensitive_data=pasta_sensitive_data, 
+                    pam=pasta_pam, 
+                    app_input=pasta_app_input
+                )
+
+                # Show a spinner while generating the attack tree
+                with st.spinner("Generating attack tree..."):
+                    try:
+                        # Check which model provider is selected from the main sidebar
+                        if model_provider == "OpenAI API":
+                            mermaid_code = attack_tree_obj.get_attack_tree(
+                                st.session_state['openai_api_key'], 
+                                selected_model, 
+                                attack_tree_prompt
+                            )
+
+                        # Display the generated attack tree code
+                        st.write("Attack Tree Code:")
+                        st.code(mermaid_code)
+
+                        # Visualise the attack tree using the Mermaid custom component
+                        st.write("Attack Tree Diagram Preview:")
+                        attack_tree_obj.mermaid(mermaid_code)
+                        
+                        col1, col2, col3, col4, col5 = st.columns([1,1,1,1,1])
+                        
+                        with col1:              
+                            # Add a button to allow the user to download the Mermaid code
+                            st.download_button(
+                                label="Download Diagram Code",
+                                data=mermaid_code,
+                                file_name="attack_tree.md",
+                                mime="text/plain",
+                                help="Download the Mermaid code for the attack tree diagram."
+                            )
+
+                        with col2:
+                            # Add a button to allow the user to open the Mermaid Live editor
+                            mermaid_live_button = st.link_button("Open Mermaid Live", "https://mermaid.live")
+                        
+                    except Exception as e:
+                        st.error(f"Error generating attack tree: {e}")
