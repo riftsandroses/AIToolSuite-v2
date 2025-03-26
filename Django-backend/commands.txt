@@ -13,3 +13,7 @@
 4. Remember to start Redis Service and Docker Engine as well.
 
 5. Set OLLAMA_HOST=0.0.0.0 as environment variable in the system.
+
+6. To map data from xlsx file to database (scanner_results Module):
+
+    python manage.py import_probe_mapping 'C:\Users\Utkarsh\Downloads\data-1.xlsx'

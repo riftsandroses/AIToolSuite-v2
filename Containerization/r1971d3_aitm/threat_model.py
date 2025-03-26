@@ -14,12 +14,12 @@ def json_to_markdown(threat_model, improvement_suggestions):
     markdown_output = "## Threat Model\n\n"
     
     # Start the markdown table with headers
-    markdown_output += "| Threat Type | Scenario | Potential Impact |\n"
-    markdown_output += "|-------------|----------|------------------|\n"
+    markdown_output += "| Threat Type | Scenario | Potential Impact | OWASP/MITRE |\n"
+    markdown_output += "|-------------|----------|------------------|-------------| \n"
     
     # Fill the table rows with the threat model data
     for threat in threat_model:
-        markdown_output += f"| {threat['Threat Type']} | {threat['Scenario']} | {threat['Potential Impact']} |\n"
+        markdown_output += f"| {threat['Threat Type']} | {threat['Scenario']} | {threat['Potential Impact']} | {threat['OWASP/MITRE']} |\n"
     
     markdown_output += "\n\n## Improvement Suggestions\n\n"
     for suggestion in improvement_suggestions:
@@ -30,13 +30,13 @@ def json_to_markdown(threat_model, improvement_suggestions):
 # Function to create a prompt for generating a threat model
 def create_threat_model_prompt(app_type, authentication, internet_facing, sensitive_data, app_input):
     prompt = f"""
-Act as a cyber security expert with more than 20 years experience of using the STRIDE threat modelling methodology to produce comprehensive threat models for a wide range of applications. Your task is to analyze the provided code summary, README content, and application description to produce a list of specific threats for the application.
+Act as a cyber security expert with more than 20 years experience of using the STRIDE threat modelling methodology to produce comprehensive threat models for a wide range of applications. Your task is to analyze the provided code summary, README content, and application description to produce a list of specific threats for the application. Ensure that relevant OWASP Top 10 for LLMs mappings are included for AI vulnerabilities only and not for other vulnerabilities. Also include OWASP Top 10 for Web Applications mapping for web applications vulnerability only.
 
 Pay special attention to the README content as it often provides valuable context about the project's purpose, architecture, and potential security considerations.
 
 For each of the STRIDE categories (Spoofing, Tampering, Repudiation, Information Disclosure, Denial of Service, and Elevation of Privilege), list multiple (3 or 4) credible threats if applicable. Each threat scenario should provide a credible scenario in which the threat could occur in the context of the application. It is very important that your responses are tailored to reflect the details you are given.
 
-When providing the threat model, use a JSON formatted response with the keys "threat_model" and "improvement_suggestions". Under "threat_model", include an array of objects with the keys "Threat Type", "Scenario", and "Potential Impact". 
+When providing the threat model, use a JSON formatted response with the keys "threat_model" and "improvement_suggestions". Under "threat_model", include an array of objects with the keys "Threat Type", "Scenario", "Potential Impact" and "OWASP/MITRE". 
 
 Under "improvement_suggestions", include an array of strings that suggest what additional information or details the user could provide to make the threat model more comprehensive and accurate in the next iteration. Focus on identifying gaps in the provided application description that, if filled, would enable a more detailed and precise threat analysis. For example:
 - Missing architectural details that would help identify more specific threats
@@ -62,12 +62,14 @@ Example of expected JSON response format:
         {{
           "Threat Type": "Spoofing",
           "Scenario": "Example Scenario 1",
-          "Potential Impact": "Example Potential Impact 1"
+          "Potential Impact": "Example Potential Impact 1",
+          "OWASP/MITRE": "OWASP Top 10 for LLMs mappings or OWASP Top 10 for Web Applications." 
         }},
         {{
           "Threat Type": "Spoofing",
           "Scenario": "Example Scenario 2",
-          "Potential Impact": "Example Potential Impact 2"
+          "Potential Impact": "Example Potential Impact 2",
+          "OWASP/MITRE": "OWASP Top 10 for LLMs mapping or OWASP Top 10 for Web Applications."
         }},
         // ... more threats
       ],
