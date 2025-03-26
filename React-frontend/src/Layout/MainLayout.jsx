@@ -3,7 +3,7 @@ import Header from '../Components/Header/Header'
 
 const MainLayout = ({ children }) => {
   return (
-    <div className='bg-[#1f2836]'>
+    <div className=''>
       <Header />
       {children}
     </div>
