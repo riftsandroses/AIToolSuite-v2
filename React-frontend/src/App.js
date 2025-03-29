@@ -4,7 +4,7 @@ import Header from "./Components/Header/Header";
 import Login from "./Pages/Login/Login";
 import LLMVulnerabilityScanner from "./Pages/LLMVulnerabilityScanner/LLMVulnerabilityScanner";
 import MainLayout from "./Layout/MainLayout";
-// import { UserAuth } from "./Guards/UserAuth";
+import { UserAuth } from "./Guards/UserAuth";
 
 
 function App() {
@@ -21,9 +21,12 @@ function App() {
 
         <Route path="/login" element={<Login />} />
         <Route path="/llm-vulnerability-scanner" element={
-          <MainLayout>
-            <LLMVulnerabilityScanner />
-          </MainLayout>
+          <UserAuth>
+            <MainLayout>
+              <LLMVulnerabilityScanner />
+            </MainLayout>
+          </UserAuth>
+
         } />
 
         <Route path="/test" element={
