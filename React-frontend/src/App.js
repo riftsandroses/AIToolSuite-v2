@@ -5,6 +5,8 @@ import Login from "./Pages/Login/Login";
 import LLMVulnerabilityScanner from "./Pages/LLMVulnerabilityScanner/LLMVulnerabilityScanner";
 import MainLayout from "./Layout/MainLayout";
 import { UserAuth } from "./Guards/UserAuth";
+import LLMVulnerabilityScannerReport from "./Pages/Reports/LLMVulnerabilityScanner/LLMVulnerabilityScannerReport";
+import ScanInsights from "./Pages/Reports/LLMVulnerabilityScanner/ScanInsights";
 
 
 function App() {
@@ -28,6 +30,37 @@ function App() {
           </UserAuth>
 
         } />
+
+        <Route path="/llm-vulnerability-scanner-report" element={
+          // <UserAuth>
+            <MainLayout>
+              <LLMVulnerabilityScannerReport/>
+            </MainLayout>
+          // </UserAuth>
+
+        } />
+
+        <Route path="/llm-vulnerability-scanner-report/scan-insights/:id" element={
+          // <UserAuth>
+            <MainLayout>
+              {/* <LLMVulnerabilityScannerReport/> */}
+              <ScanInsights/>
+            </MainLayout>
+          // </UserAuth>
+
+        } />
+
+        <Route path="*" element={
+          // <UserAuth>
+            <MainLayout>
+              Page not found
+              <ScanInsights/>
+            </MainLayout>
+          // </UserAuth>
+
+        } />
+
+
 
         <Route path="/test" element={
           <MainLayout>

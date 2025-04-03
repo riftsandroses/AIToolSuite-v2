@@ -1,15 +1,21 @@
-import React, {useState, useEffect} from 'react'
+import React, { useState, useEffect } from 'react'
 import { menu } from "./navOptions";
 import logo from "../../Assets/logo.webp"
 import SlideTabs from './SlideTabs';
 import classes from "./header.module.css"
+import AccountCircleIcon from '@mui/icons-material/AccountCircle';
+import { useSelector } from "react-redux"
+
 
 const Header = () => {
     const [headerBgChange, setHeaderBgChange] = useState(false)
 
+    const accessToken = useSelector((state) => state.loggedInUser.loggedInUser.accessToken)
+
+
     useEffect(() => {
-        const handleScroll = ()=>{
-            if(window.scrollY > 40){
+        const handleScroll = () => {
+            if (window.scrollY > 40) {
                 setHeaderBgChange(true);
             } else {
                 setHeaderBgChange(false)
@@ -17,11 +23,11 @@ const Header = () => {
         };
         window.addEventListener("scroll", handleScroll);
 
-        return ()=>{
-            window.removeEventListener("scroll",handleScroll)
+        return () => {
+            window.removeEventListener("scroll", handleScroll)
         }
     }, [])
-    
+
 
     return (
         <div>
@@ -39,12 +45,18 @@ const Header = () => {
 
 
                     <div className={classes.actionBtnContainer}>
-                        <button
-                            aria-label="sign-in"
-                            className={classes.signinBtn}
-                        >
-                            Sign In
-                        </button>
+
+                        {accessToken ?
+                            <AccountCircleIcon
+                                className={classes.signedIn} />
+                            :
+                            <button
+                                aria-label="sign-in"
+                                className={classes.signinBtn}
+                            >
+                                Sign In
+                            </button>
+                        }
                     </div>
                 </nav>
             </header>

@@ -186,6 +186,7 @@ class ScanResultsViewSet(viewsets.ViewSet):
         for scan in scans:
             scan_list.append({
                 "id": scan.id,
+                "service":"openai",
                 "scan_name": scan.scan_name,
                 "client_name": scan.client_name,
                 "client_app_name": scan.client_app_name,
@@ -206,11 +207,12 @@ class ScanResultsViewSet(viewsets.ViewSet):
         for scan in scans:
             scan_list.append({
                 "id": scan.id,
+                "service":"azure",
                 "scan_name": scan.scan_name,
                 "client_name": scan.client_name,
                 "client_app_name": scan.client_app_name,
-                "azure_model_name": scan.azure_model_name,
-                "azure_deployment_name": scan.azure_deployment_name,
+                "model_name": scan.azure_model_name,
+                # "deployment_name": scan.azure_deployment_name, #OpenAI doesn't have this field
                 "created_at": scan.created_at,
             })
         
@@ -334,6 +336,7 @@ class ScanResultsViewSet(viewsets.ViewSet):
             return Response({
                 "scan_name": scan.scan_name,
                 "client_name": scan.client_name,
+                "data_name":"Severity",
                 "severity_data": graph_data
             })
             

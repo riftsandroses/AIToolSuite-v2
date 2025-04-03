@@ -15,77 +15,77 @@ export const menu = [
   {
     tabName: "⁠Reports & Insights Lab",
     subMenu: [
-      {
-        heading: "ML Model Report ",
-        options: [
-          {
-            name: "Performance Attacks",
-            desc: "Report",
-            icon: PanelsTopLeft,
-            path:""
-          },
-          {
-            name: "Reverse Engineering",
-            desc: "Report",
-            icon: Bolt,
-            path:""
+      // {
+      //   heading: "ML Model Report ",
+      //   options: [
+      //     {
+      //       name: "Performance Attacks",
+      //       desc: "Report",
+      //       icon: PanelsTopLeft,
+      //       path:""
+      //     },
+      //     {
+      //       name: "Reverse Engineering",
+      //       desc: "Report",
+      //       icon: Bolt,
+      //       path:""
 
-          },
-          {
-            name: "Explainability Attacks",
-            desc: "Report",
-            icon: Bolt,
-            path:"/"
+      //     },
+      //     {
+      //       name: "Explainability Attacks",
+      //       desc: "Report",
+      //       icon: Bolt,
+      //       path:"/"
 
-          }
-        ]
-      },
+      //     }
+      //   ]
+      // },
 
       {
         heading: "LLM Attack Report",
         options: [
-          {
-            name: "Prompt Attack ",
-            desc: "Automation Report",
-            icon: PanelTop,
-            path:""
+          // {
+          //   name: "Prompt Attack ",
+          //   desc: "Automation Report",
+          //   icon: PanelTop,
+          //   path:""
 
-          },
-          {
-            name: "Adversarial Attack ",
-            desc: "Testing Report",
-            icon: Database,
-            path:""
+          // },
+          // {
+          //   name: "Adversarial Attack ",
+          //   desc: "Testing Report",
+          //   icon: Database,
+          //   path:""
 
-          },
+          // },
           {
             name: "LLM Vulnerability ",
             desc: "Scanner Report",
             icon: Database,
-            path:""
+            path:"/llm-vulnerability-scanner-report"
 
           },
         ]
       },
-      {
-        heading: "API Attack Report",
-        options: [
-          {
-            name: "REST Attack ",
-            desc: "Automation Report",
-            icon: PanelTop,
-            path:""
+      // {
+      //   heading: "API Attack Report",
+      //   options: [
+      //     {
+      //       name: "REST Attack ",
+      //       desc: "Automation Report",
+      //       icon: PanelTop,
+      //       path:""
 
-          },
-          {
-            name: "REST Attack ",
-            desc: "Automation Report",
-            icon: Database,
-            path:""
+      //     },
+      //     {
+      //       name: "REST Attack ",
+      //       desc: "Automation Report",
+      //       icon: Database,
+      //       path:""
 
-          }
-        ]
-      },
+      //     }
+      //   ]
+      // },
 
     ],
   },
@@ -94,50 +94,50 @@ export const menu = [
   {
     tabName: "AI Attack Lab",
     subMenu: [
-      {
-        heading: "ML Model Suite",
-        options: [
-          {
-            name: "Performance Attacks",
-            // desc: "Respoesignnsive d",
-            icon: PanelsTopLeft,
-            path:""
+      // {
+      //   heading: "ML Model Suite",
+      //   options: [
+      //     {
+      //       name: "Performance Attacks",
+      //       // desc: "Respoesignnsive d",
+      //       icon: PanelsTopLeft,
+      //       path:""
 
-          },
-          {
-            name: "Reverse Engineering",
-            // desc: "Site control",
-            icon: Bolt,
-            path:""
+      //     },
+      //     {
+      //       name: "Reverse Engineering",
+      //       // desc: "Site control",
+      //       icon: Bolt,
+      //       path:""
 
-          },
-          {
-            name: "Explainability Attacks",
-            // desc: "Site control",
-            icon: Bolt,
-            path:""
+      //     },
+      //     {
+      //       name: "Explainability Attacks",
+      //       // desc: "Site control",
+      //       icon: Bolt,
+      //       path:""
 
-          }
-        ]
-      },
+      //     }
+      //   ]
+      // },
 
       {
         heading: "LLM Attack Suite",
         options: [
-          {
-            name: "Prompt Attack Automation",
-            // desc: "Link pages",
-            icon: PanelTop,
-            path:""
+          // {
+          //   name: "Prompt Attack Automation",
+          //   // desc: "Link pages",
+          //   icon: PanelTop,
+          //   path:""
 
-          },
-          {
-            name: "Adversarial Attack Testing",
-            // desc: "Management content",
-            icon: Database,
-            path:""
+          // },
+          // {
+          //   name: "Adversarial Attack Testing",
+          //   // desc: "Management content",
+          //   icon: Database,
+          //   path:""
 
-          },
+          // },
           {
             name: "LLM Vulnerability Scanner",
             // desc: "Management content",
@@ -171,26 +171,26 @@ export const menu = [
   },
 
   //Threat Modelling Lab
-  {
-    tabName: "Threat Modelling Lab",
-    subMenu: [
-      {
-        // heading: "Design",
-        options: [
-          {
-            name: "AI-enabled Threat Modelling",
-            desc: "Attack",
-            icon: PanelsTopLeft,
-            path:""
+  // {
+  //   tabName: "Threat Modelling Lab",
+  //   subMenu: [
+  //     {
+  //       // heading: "Design",
+  //       options: [
+  //         {
+  //           name: "AI-enabled Threat Modelling",
+  //           desc: "Attack",
+  //           icon: PanelsTopLeft,
+  //           path:""
 
-          },
+  //         },
 
-        ]
-      },
+  //       ]
+  //     },
 
 
-    ],
-  },
+  //   ],
+  // },
 
   //Risk Assessment Lab
   {
