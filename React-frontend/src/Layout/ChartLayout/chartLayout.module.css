@@ -1,8 +1,9 @@
 :root {
     --light-shadow1: rgba(0, 0, 0, 0.02) 0px 4px 12px;
     --dark-shdow:0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
-    --text-color-inverted: #fff
-    --text-color-inverted: #fff
+    /* --text-color-inverted: #fff; */
+    --text-color-inverted: black;
+
 }
 
 .parentContainer {

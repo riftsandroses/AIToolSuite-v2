@@ -60,7 +60,7 @@
 
 // export default TableGrid
 
-import React, { useCallback, useMemo, useState, useEffect } from "react";
+import React, { useMemo} from "react";
 import { AgGridReact } from "ag-grid-react";
 import {
   ClientSideRowModelModule,
@@ -75,9 +75,6 @@ ModuleRegistry.registerModules([
   ValidationModule /* Development Only */,
 ]);
 
-const toolTipValueGetter = (params) =>
-  params.value == null || params.value === "" ? "- Missing -" : params.value;
-
 const TableGrid = ({data,cols}) => {
     console.log(data)
     console.log(cols)
@@ -87,8 +84,8 @@ const TableGrid = ({data,cols}) => {
 
   const defaultColDef = useMemo(() => {
     return {
-      flex: 1,
-      minWidth: 100,
+    //   flex: 1,
+    //   minWidth: 100,
     };
   }, []);
 
