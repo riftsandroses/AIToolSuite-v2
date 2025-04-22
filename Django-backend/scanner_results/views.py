@@ -131,8 +131,8 @@ class ScanResultsViewSet(viewsets.ViewSet):
                     "scan_name": scan.scan_name,
                     "client_name": scan.client_name,
                     "client_app_name": scan.client_app_name,
-                    "azure_model_name": scan.azure_model_name,
-                    "azure_deployment_name": scan.azure_deployment_name,
+                    "model_name": scan.azure_model_name,
+                    # "azure_deployment_name": scan.azure_deployment_name,
                     "probe": result.probe,
                     "prompt": result.prompt,
                     "output": result.output,
@@ -169,6 +169,8 @@ class ScanResultsViewSet(viewsets.ViewSet):
                     })
                 
                 formatted_results.append(result_data)
+                
+                
             
             return Response(formatted_results)
             
@@ -726,6 +728,8 @@ class ScanResultsViewSet(viewsets.ViewSet):
             # In production, you would handle this differently for better security
             response['X-Encryption-Key'] = urlsafe_b64encode(key).decode('utf-8')
             response['X-Encryption-Nonce'] = urlsafe_b64encode(nonce).decode('utf-8')
+            #test
+            response["Access-Control-Expose-Headers"] = "X-Encryption-Key, X-Encryption-Nonce, Content-Disposition"
             
             return response
             
@@ -756,8 +760,8 @@ class ScanResultsViewSet(viewsets.ViewSet):
                     "scan_name": scan.scan_name,
                     "client_name": scan.client_name,
                     "client_app_name": scan.client_app_name,
-                    "azure_model_name": scan.azure_model_name,
-                    "azure_deployment_name": scan.azure_deployment_name,
+                    "model_name": scan.azure_model_name,
+                    # "azure_deployment_name": scan.azure_deployment_name,
                     "probe": result.probe,
                     "prompt": result.prompt,
                     "output": result.output,
@@ -831,6 +835,9 @@ class ScanResultsViewSet(viewsets.ViewSet):
             # In production, you would handle this differently for better security
             response['X-Encryption-Key'] = urlsafe_b64encode(key).decode('utf-8')
             response['X-Encryption-Nonce'] = urlsafe_b64encode(nonce).decode('utf-8')
+            
+            #test
+            response["Access-Control-Expose-Headers"] = "X-Encryption-Key, X-Encryption-Nonce, Content-Disposition"
             
             return response
             
@@ -1095,8 +1102,8 @@ class ScanResultsViewSet(viewsets.ViewSet):
                     "scan_name": scan.scan_name,
                     "client_name": scan.client_name,
                     "client_app_name": scan.client_app_name,
-                    "azure_model_name": scan.azure_model_name,
-                    "azure_deployment_name": scan.azure_deployment_name,
+                    "model_name": scan.azure_model_name,
+                    # "azure_deployment_name": scan.azure_deployment_name,
                     "probe": result.probe,
                     "prompt": result.prompt,
                     "output": result.output,
