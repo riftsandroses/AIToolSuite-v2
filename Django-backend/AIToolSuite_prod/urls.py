@@ -24,4 +24,5 @@ urlpatterns = [
     path('api/v1/llm-scanner/', include('scanner.urls')),
     path('api/v1/aitm/', include('aitm.urls')),
     path('api/v1/scanner-results/', include('scanner_results.urls')),
+    path('api/v1/risk-assessment/', include('risk_assessment.urls')),
 ]
