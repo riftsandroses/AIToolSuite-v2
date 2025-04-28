@@ -50,3 +50,8 @@ coverage.xml
 
 # Sphinx documentation
 docs/_build/
+
+# Celery files:
+*.bak
+*.dat 
+*.dir
