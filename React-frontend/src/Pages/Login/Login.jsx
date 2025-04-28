@@ -153,7 +153,6 @@ const Login = () => {
                             onClick={handleSubmit}>
                             Sign In
                         </div>
-
                     </form>
                 </div>
                 <div className={classes.toggleContainer}>

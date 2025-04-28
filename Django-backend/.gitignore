@@ -4,6 +4,11 @@ __pycache__/
 *.pyc
 *.DS_Store
 
+artifacts
+encryption_keys
+yaml
+
+
 # C extensions
 *.so
 

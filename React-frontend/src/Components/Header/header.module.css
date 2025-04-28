@@ -60,6 +60,12 @@
     box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
 }
 
+.signedIn{
+    color: white;
+    font-size: 2rem !important;
+    cursor: pointer;
+}
+
 /* **************SlideTab.jsx*************** */
 
 .TabContainer {
@@ -131,4 +137,8 @@
     align-items: center;
     /* column-gap: 1rem; */
     margin: 0.5rem
+}
+
+.signedIn{
+    
 }
