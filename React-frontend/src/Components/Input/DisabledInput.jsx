@@ -71,7 +71,7 @@ const InputElement = styled('input')(
 
   &:focus {
     // border-color: ${blue[400]};
-      border-color: #805AF5;
+      border-color: #2a3aad;
 
     // box-shadow: 0 0 0 3px ${theme.palette.mode === 'dark' ? blue[600] : blue[200]};
   }

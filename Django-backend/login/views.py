@@ -26,7 +26,11 @@ class UserLoginView(APIView):
 
             if user.check_password(password):
                 refresh = RefreshToken.for_user(user)
+                
                 return Response({
+                    "name": user.first_name + " " + user.last_name,
+                    "email": user.email,
+                    "username": user.username,
                     "access": str(refresh.access_token),
                     "refresh": str(refresh)
                 }, status=status.HTTP_200_OK)

@@ -1,0 +1,39 @@
+:root {
+    --light-shadow1: rgba(0, 0, 0, 0.02) 0px 4px 12px;
+    --dark-shdow:0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+    /* --text-color-inverted: #fff; */
+    --text-color-inverted: black;
+
+}
+
+.parentContainer {
+    /* background-color: var(--secondary-color); */
+    background-color: white;
+    width: 100%;
+    padding: 1% 1% 1% 1%;
+    margin: 1% 1% 1% 1%;
+    border-radius: 5px;
+    /* box-shadow: var(--dark-shadow1); */
+}
+
+.chartHeading {
+    display: flex;
+    flex-direction: column;
+    margin: 1% 0% 2% 0%;
+    text-align: center;
+    /* margin: 1rem 1rem 1rem 0rem; */
+}
+
+.chartTitle {
+    /* margin-bottom: 0.1rem; */
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--text-color-inverted);
+}
+
+.chartSubtitle {
+    /* margin-bottom: -rem; */
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-color-inverted);
+}
