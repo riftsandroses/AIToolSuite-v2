@@ -6,7 +6,6 @@ import classes from "./header.module.css"
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import { useSelector } from "react-redux"
 
-
 const Header = () => {
     const [headerBgChange, setHeaderBgChange] = useState(false)
 

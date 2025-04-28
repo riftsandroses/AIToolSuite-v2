@@ -641,15 +641,37 @@ scenarios.
         else:
             st.error("Please generate a threat model first before requesting test cases.")
 
+# Initialize session state for PASTA tab if not already present
+if 'pasta_app_input' not in st.session_state:
+    st.session_state['pasta_app_input'] = ''
+if 'pasta_app_type' not in st.session_state:
+    st.session_state['pasta_app_type'] = 'Web application'
+if 'pasta_sensitive_data' not in st.session_state:
+    st.session_state['pasta_sensitive_data'] = 'Unclassified'
+if 'pasta_pam' not in st.session_state:
+    st.session_state['pasta_pam'] = 'No'
+if 'pasta_internet_facing' not in st.session_state:
+    st.session_state['pasta_internet_facing'] = 'No'
+if 'pasta_authentication' not in st.session_state:
+    st.session_state['pasta_authentication'] = []
+if 'pasta_threat_model_output' not in st.session_state:
+    st.session_state['pasta_threat_model_output'] = ''
+if 'pasta_control_matrix_output' not in st.session_state:
+    st.session_state['pasta_control_matrix_output'] = ''
+if 'pasta_attack_tree_output' not in st.session_state:
+    st.session_state['pasta_attack_tree_output'] = ''
+
 # PASTA Tab
 with tab6:
     # Get application description from the user
     pasta_app_input = st.text_area(
         label="Describe the application to be modelled",
+        value=st.session_state['pasta_app_input'],
         placeholder="Enter your application details...",
         height=150,
-        key="pasta_app_input",
+        key="pasta_app_input_area",
         help="Please provide a detailed description of the application, including the purpose, technologies used, and other relevant information.",
+        on_change=lambda: st.session_state.update(pasta_app_input=st.session_state.pasta_app_input_area)
     )
 
     # Create two columns layout for input fields
@@ -667,26 +689,32 @@ with tab6:
                 "IoT application",
                 "Other",
             ],
-            key="pasta_app_type",
+            key="pasta_app_type_select",
+            index=["Web application", "Mobile application", "Desktop application", "Cloud application", "IoT application", "Other"].index(st.session_state['pasta_app_type']),
+            on_change=lambda: st.session_state.update(pasta_app_type=st.session_state.pasta_app_type_select)
         )
 
         pasta_sensitive_data = st.selectbox(
             label="What is the highest sensitivity level of the data processed by the application?",
             options=[
                 "Top Secret",
-                "Secret",
+                "Secret", 
                 "Confidential",
                 "Restricted",
                 "Unclassified",
                 "None",
             ],
-            key="pasta_sensitive_data",
+            key="pasta_sensitive_data_select",
+            index=["Top Secret", "Secret", "Confidential", "Restricted", "Unclassified", "None"].index(st.session_state['pasta_sensitive_data']),
+            on_change=lambda: st.session_state.update(pasta_sensitive_data=st.session_state.pasta_sensitive_data_select)
         )
 
         pasta_pam = st.selectbox(
             label="Are privileged accounts stored in a Privileged Access Management (PAM) solution?",
             options=["Yes", "No"],
-            key="pasta_pam",
+            key="pasta_pam_select",
+            index=["Yes", "No"].index(st.session_state['pasta_pam']),
+            on_change=lambda: st.session_state.update(pasta_pam=st.session_state.pasta_pam_select)
         )
 
     # Create input fields for internet_facing and authentication
@@ -694,13 +722,17 @@ with tab6:
         pasta_internet_facing = st.selectbox(
             label="Is the application internet-facing?",
             options=["Yes", "No"],
-            key="pasta_internet_facing",
+            key="pasta_internet_facing_select",
+            index=["Yes", "No"].index(st.session_state['pasta_internet_facing']),
+            on_change=lambda: st.session_state.update(pasta_internet_facing=st.session_state.pasta_internet_facing_select)
         )
 
         pasta_authentication = st.multiselect(
             "What authentication methods are supported by the application?",
             ["SSO", "MFA", "OAUTH2", "Basic", "None"],
-            key="pasta_authentication",
+            default=st.session_state['pasta_authentication'],
+            key="pasta_authentication_select",
+            on_change=lambda: st.session_state.update(pasta_authentication=st.session_state.pasta_authentication_select)
         )
 
     # Threat Model, Security Controls, and Attack Tree sub-tabs
@@ -714,18 +746,28 @@ with tab6:
 
     # Threat Model Sub-Tab
     with pasta_tab1:
+        # Display previously generated threat model if exists
+        if st.session_state['pasta_threat_model_output']:
+            st.markdown(st.session_state['pasta_threat_model_output'])
+            st.download_button(
+                label="Download Threat Model",
+                data=st.session_state['pasta_threat_model_output'],
+                file_name="pasta_gpt_threat_model.md",
+                mime="text/markdown",
+            )
+
         if st.button("Generate Threat Model", key="pasta_threat_model_btn"):
-            if not pasta_app_input:
+            if not st.session_state['pasta_app_input']:
                 st.error("Please enter your application details before submitting.")
             else:
                 # Generate the prompt using the create_prompt function
                 threat_model_prompt = threat_model_obj.create_threat_model_prompt(
-                    app_type=pasta_app_type, 
-                    authentication=pasta_authentication, 
-                    internet_facing=pasta_internet_facing, 
-                    sensitive_data=pasta_sensitive_data, 
-                    pam=pasta_pam, 
-                    app_input=pasta_app_input
+                    app_type=st.session_state['pasta_app_type'], 
+                    authentication=st.session_state['pasta_authentication'], 
+                    internet_facing=st.session_state['pasta_internet_facing'], 
+                    sensitive_data=st.session_state['pasta_sensitive_data'], 
+                    pam=st.session_state['pasta_pam'], 
+                    app_input=st.session_state['pasta_app_input']
                 )
 
                 # Show a spinner while generating the threat model
@@ -746,6 +788,9 @@ with tab6:
                         # Convert the threat model JSON to Markdown
                         markdown_output = markdown_obj.json_to_markdown(threat_model, improvement_suggestions)
 
+                        # Store the output in session state
+                        st.session_state['pasta_threat_model_output'] = markdown_output
+
                         # Display the threat model in Markdown
                         st.markdown(markdown_output)
 
@@ -762,18 +807,28 @@ with tab6:
 
     # Security Controls Sub-Tab
     with pasta_tab2:
+        # Display previously generated control matrix if exists
+        if st.session_state['pasta_control_matrix_output']:
+            st.markdown(st.session_state['pasta_control_matrix_output'])
+            st.download_button(
+                label="Download Control Matrix",
+                data=st.session_state['pasta_control_matrix_output'],
+                file_name="control_matrix_model.md",
+                mime="text/markdown",
+            )
+
         if st.button("Generate Security Controls", key="pasta_control_matrix_btn"):
-            if not pasta_app_input:
+            if not st.session_state['pasta_app_input']:
                 st.error("Please enter your application details before submitting.")
             else:
                 # Generate the prompt using the create_prompt function
                 control_matrix_prompt = control_matrix_obj.create_control_matrix_prompt(
-                    app_type=pasta_app_type, 
-                    authentication=pasta_authentication, 
-                    internet_facing=pasta_internet_facing, 
-                    sensitive_data=pasta_sensitive_data, 
-                    pam=pasta_pam, 
-                    app_input=pasta_app_input
+                    app_type=st.session_state['pasta_app_type'], 
+                    authentication=st.session_state['pasta_authentication'], 
+                    internet_facing=st.session_state['pasta_internet_facing'], 
+                    sensitive_data=st.session_state['pasta_sensitive_data'], 
+                    pam=st.session_state['pasta_pam'], 
+                    app_input=st.session_state['pasta_app_input']
                 )
 
                 # Show a spinner while generating the control matrix
@@ -794,6 +849,9 @@ with tab6:
                         # Convert the control matrix JSON to Markdown
                         markdown_output = markdown_obj.json_to_markdown_control(control_matrix, improvement_suggestions)
 
+                        # Store the output in session state
+                        st.session_state['pasta_control_matrix_output'] = markdown_output
+
                         # Display the control matrix in Markdown
                         st.markdown(markdown_output)
 
@@ -810,18 +868,41 @@ with tab6:
 
     # MITRE Attack Tree Sub-Tab
     with pasta_tab3:
+        # Display previously generated attack tree if exists
+        if st.session_state['pasta_attack_tree_output']:
+            st.write("Attack Tree Code:")
+            st.code(st.session_state['pasta_attack_tree_output'])
+            st.write("Attack Tree Diagram Preview:")
+            attack_tree_obj.mermaid(st.session_state['pasta_attack_tree_output'])
+            
+            col1, col2, col3, col4, col5 = st.columns([1,1,1,1,1])
+            
+            with col1:              
+                # Add a button to allow the user to download the Mermaid code
+                st.download_button(
+                    label="Download Diagram Code",
+                    data=st.session_state['pasta_attack_tree_output'],
+                    file_name="attack_tree.md",
+                    mime="text/plain",
+                    help="Download the Mermaid code for the attack tree diagram."
+                )
+
+            with col2:
+                # Add a button to allow the user to open the Mermaid Live editor
+                mermaid_live_button = st.link_button("Open Mermaid Live", "https://mermaid.live")
+
         if st.button("Generate MITRE Attack Tree", key="pasta_attack_tree_btn"):
-            if not pasta_app_input:
+            if not st.session_state['pasta_app_input']:
                 st.error("Please enter your application details before submitting.")
             else:
                 # Generate the prompt using the create_attack_tree_prompt function
                 attack_tree_prompt = attack_tree_obj.create_attack_tree_prompt(
-                    app_type=pasta_app_type, 
-                    authentication=pasta_authentication, 
-                    internet_facing=pasta_internet_facing, 
-                    sensitive_data=pasta_sensitive_data, 
-                    pam=pasta_pam, 
-                    app_input=pasta_app_input
+                    app_type=st.session_state['pasta_app_type'], 
+                    authentication=st.session_state['pasta_authentication'], 
+                    internet_facing=st.session_state['pasta_internet_facing'], 
+                    sensitive_data=st.session_state['pasta_sensitive_data'], 
+                    pam=st.session_state['pasta_pam'], 
+                    app_input=st.session_state['pasta_app_input']
                 )
 
                 # Show a spinner while generating the attack tree
@@ -834,6 +915,9 @@ with tab6:
                                 selected_model, 
                                 attack_tree_prompt
                             )
+
+                        # Store the output in session state
+                        st.session_state['pasta_attack_tree_output'] = mermaid_code
 
                         # Display the generated attack tree code
                         st.write("Attack Tree Code:")
