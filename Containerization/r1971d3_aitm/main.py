@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 import requests
 import json
+import time 
 
 from threat_model import create_threat_model_prompt, get_threat_model, get_threat_model_azure, get_threat_model_google, get_threat_model_mistral, get_threat_model_ollama, get_threat_model_anthropic, get_threat_model_lm_studio, get_threat_model_groq, json_to_markdown, get_image_analysis, create_image_analysis_prompt
 from attack_tree import create_attack_tree_prompt, get_attack_tree, get_attack_tree_azure, get_attack_tree_mistral, get_attack_tree_ollama, get_attack_tree_anthropic, get_attack_tree_lm_studio, get_attack_tree_groq, get_attack_tree_google
@@ -772,38 +773,61 @@ with tab6:
 
                 # Show a spinner while generating the threat model
                 with st.spinner("Analysing potential threats..."):
-                    try:
+                    max_retries = 3
+                    retry_count = 0
+                    while retry_count < max_retries:
+                        try:
                         # Check which model provider is selected from the main sidebar
-                        if model_provider == "OpenAI API":
-                            model_output = threat_model_obj.get_threat_model(
-                                st.session_state['openai_api_key'], 
-                                selected_model, 
-                                threat_model_prompt
-                            )
+                            if model_provider == "OpenAI API":
+                                model_output = threat_model_obj.get_threat_model(
+                                    st.session_state['openai_api_key'], 
+                                    selected_model, 
+                                    threat_model_prompt
+                                )
+                            elif model_provider == "Google AI API":
+                                google_api_key = st.session_state['google_api_key']
+                                model_output = get_threat_model_google(google_api_key, google_model, threat_model_prompt)
+                            elif model_provider == "Ollama":
+                                model_output = get_threat_model_ollama(st.session_state['ollama_endpoint'], selected_model, threat_model_prompt)
                         
                         # Access the threat model and improvement suggestions from the parsed content
-                        threat_model = model_output.get("threat_model", [])
-                        improvement_suggestions = model_output.get("improvement_suggestions", [])
+                            threat_model = model_output.get("threat_model", [])
+                            improvement_suggestions = model_output.get("improvement_suggestions", [])
+                            
+                            break
+                        except Exception as e:
+                            retry_count += 1
+                            if retry_count == max_retries:
+                                st.error(f"Error generating threat model after {max_retries} attempts: {e}")
+                                threat_model = []
+                                improvement_suggestions = []
+                            else:
+                                st.warning(f"Error generating threat model. Retrying attempt {retry_count+1}/{max_retries}...")
 
                         # Convert the threat model JSON to Markdown
-                        markdown_output = markdown_obj.json_to_markdown(threat_model, improvement_suggestions)
+                        
 
                         # Store the output in session state
-                        st.session_state['pasta_threat_model_output'] = markdown_output
+                        #st.session_state['pasta_threat_model_output'] = markdown_output
 
                         # Display the threat model in Markdown
-                        st.markdown(markdown_output)
-
+                       
+                markdown_output = markdown_obj.json_to_markdown(threat_model, improvement_suggestions)
+                st.session_state['pasta_threat_model_output'] = markdown_output
+                #st.markdown(markdown_output)
                         # Add a button to allow the user to download the output as a Markdown file
-                        st.download_button(
-                            label="Download Threat Model",
-                            data=markdown_output,
-                            file_name="pasta_gpt_threat_model.md",
-                            mime="text/markdown",
-                        )
+                unique_key = f"download_button_{int(time.time())}"
+                st.markdown(st.session_state['pasta_threat_model_output'])
+                st.download_button(
+                    label="Download Threat Model",
+                    data=st.session_state['pasta_threat_model_output'],
+                    file_name="threat_model.md",
+                    mime="text/markdown",
+                    key=unique_key  # Add this unique key parameter
+                )
+    
 
-                    except Exception as e:
-                        st.error(f"Error generating threat model: {e}")
+                    
 
     # Security Controls Sub-Tab
     with pasta_tab2:
@@ -841,7 +865,11 @@ with tab6:
                                 selected_model, 
                                 control_matrix_prompt
                             )
-                        
+                        elif model_provider == "Google AI API":
+                                google_api_key = st.session_state['google_api_key']
+                                model_output = get_threat_model_google(google_api_key, google_model, control_matrix_prompt)
+                        elif model_provider == "Ollama":
+                                model_output = get_threat_model_ollama(st.session_state['ollama_endpoint'], selected_model, control_matrix_prompt)
                         # Access the control matrix and improvement suggestions from the parsed content
                         control_matrix = model_output.get("control_matrix", [])
                         improvement_suggestions = model_output.get("improvement_suggestions", [])
@@ -851,17 +879,21 @@ with tab6:
 
                         # Store the output in session state
                         st.session_state['pasta_control_matrix_output'] = markdown_output
-
-                        # Display the control matrix in Markdown
-                        st.markdown(markdown_output)
-
-                        # Add a button to allow the user to download the output as a Markdown file
+                        
+                        unique_key = f"download_button_{int(time.time())}"
+                        st.markdown(st.session_state['pasta_control_matrix_output'])
                         st.download_button(
                             label="Download Control Matrix",
-                            data=markdown_output,
+                            data=st.session_state['pasta_control_matrix_output'],
                             file_name="control_matrix_model.md",
                             mime="text/markdown",
+                            key=unique_key  # Add this unique key parameter
                         )
+                        
+                        
+
+                        
+                        
 
                     except Exception as e:
                         st.error(f"Error generating control matrix: {e}")
@@ -915,13 +947,18 @@ with tab6:
                                 selected_model, 
                                 attack_tree_prompt
                             )
+                        elif model_provider == "Google AI API":
+                                google_api_key = st.session_state['google_api_key']
+                                mermaid_code = get_attack_tree_google(google_api_key, google_model,attack_tree_prompt)
+                        elif model_provider == "Ollama":
+                                mermaid_code = get_attack_tree_ollama(st.session_state['ollama_endpoint'], selected_model,attack_tree_prompt)
 
                         # Store the output in session state
                         st.session_state['pasta_attack_tree_output'] = mermaid_code
 
                         # Display the generated attack tree code
                         st.write("Attack Tree Code:")
-                        st.code(mermaid_code)
+                        st.code(st.session_state['pasta_attack_tree_output'])
 
                         # Visualise the attack tree using the Mermaid custom component
                         st.write("Attack Tree Diagram Preview:")
@@ -931,12 +968,14 @@ with tab6:
                         
                         with col1:              
                             # Add a button to allow the user to download the Mermaid code
+                            unique_key1 = f"download_button_{int(time.time())}"
                             st.download_button(
                                 label="Download Diagram Code",
                                 data=mermaid_code,
                                 file_name="attack_tree.md",
                                 mime="text/plain",
-                                help="Download the Mermaid code for the attack tree diagram."
+                                help="Download the Mermaid code for the attack tree diagram.",
+                                key=unique_key1
                             )
 
                         with col2:

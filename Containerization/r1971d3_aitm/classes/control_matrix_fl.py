@@ -4,6 +4,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 from openai import OpenAI
 from openai import AzureOpenAI
+import google.generativeai as genai
 
 class ControlMatrixCl:
 
@@ -39,6 +40,42 @@ class ControlMatrixCl:
             ],
             max_tokens=4000,
         )
+    def get_control_matrix_ollama(prompt, model_name="llama3"):
+        url = "http://localhost:11434/api/chat"
+
+        payload = {
+        "model": model_name,
+        "messages": [
+            {"role": "system", "content": "You are a helpful assistant designed to output JSON."},
+            {"role": "user", "content": prompt}
+        ],
+        "format": "json",
+        "stream": False
+    }
+    def get_control_matrix_google(self,google_api_key, google_model, prompt):
+        genai.configure(api_key=google_api_key)
+    
+        model = genai.GenerativeModel(
+        google_model,
+        generation_config={"response_mime_type": "application/json"}
+    )
+
+        try:
+            response = model.generate_content(
+            prompt,
+            safety_settings={
+                'DANGEROUS': 'block_only_high'  # Adjusts safety filters
+            }
+        )
+        except json.JSONDecodeError as e:
+            print(f"Error decoding JSON: {str(e)}")
+            print("Raw JSON string:")
+            print(response.candidates[0].content.parts[0].text)
+            return None
+
+        except Exception as e:
+            print(f"Unexpected error: {str(e)}")
+            return None
 
         # Convert the JSON string in the 'content' field to a Python dictionary
         response_content = json.loads(response.choices[0].message.content, strict=False)
