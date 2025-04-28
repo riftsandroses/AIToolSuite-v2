@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     'scanner',
     'aitm',
     'scanner_results',
+    'risk_assessment',
     
 ]
 
