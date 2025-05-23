@@ -18,11 +18,12 @@ export const getAuthCookies = () => {
     accessToken,
   };
 };
+const API_BASE_URL = process.env.REACT_APP_API_BASE_URL;
 
 export const signInUser = async ({ email, password }) => {
 //   try {
     const res = await axios.post(
-      "http://127.0.0.1:8000/api/v1/login/",
+      `${API_BASE_URL}/api/v1/login/`,
       {
         email: email,
         password: password,

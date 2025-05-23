@@ -487,25 +487,25 @@ class ScanResultsViewSet(viewsets.ViewSet):
             
         return file_name
     
-    # def _encrypt_file(self, file_data):
-    #     """
-    #     Encrypt file data using AES-256-GCM
-    #     Returns: encrypted data, key, and nonce
-    #     """
-    #     # Generate a random encryption key (32 bytes for AES-256)
-    #     key = secrets.token_bytes(32)
+    def _encrypt_file(self, file_data):
+        """
+        Encrypt file data using AES-256-GCM
+        Returns: encrypted data, key, and nonce
+        """
+        # Generate a random encryption key (32 bytes for AES-256)
+        key = secrets.token_bytes(32)
         
-    #     # Generate a nonce
-    #     nonce = secrets.token_bytes(12)
+        # Generate a nonce
+        nonce = secrets.token_bytes(12)
         
-    #     # Create an AES-GCM cipher instance
-    #     aesgcm = AESGCM(key)
+        # Create an AES-GCM cipher instance
+        aesgcm = AESGCM(key)
         
-    #     # Encrypt the data
-    #     encrypted_data = aesgcm.encrypt(nonce, file_data, None)
+        # Encrypt the data
+        encrypted_data = aesgcm.encrypt(nonce, file_data, None)
         
-    #     # Return encrypted data along with key and nonce for decryption
-    #     return encrypted_data, key, nonce
+        # Return encrypted data along with key and nonce for decryption
+        return encrypted_data, key, nonce
     
     def _create_excel_workbook(self, results, scan_name, client_name, client_app_name, scan_type):
         """
@@ -609,32 +609,32 @@ class ScanResultsViewSet(viewsets.ViewSet):
         
         return wb, artifact_files
     
-    # def _store_encryption_info(self, filename, key, nonce):
-    #     """
-    #     Store encryption key and nonce (securely)
-    #     In production, you would want to store these in a secure database or KMS
-    #     """
-    #     # Convert binary key and nonce to base64 for storage
-    #     key_b64 = urlsafe_b64encode(key).decode('utf-8')
-    #     nonce_b64 = urlsafe_b64encode(nonce).decode('utf-8')
+    def _store_encryption_info(self, filename, key, nonce):
+        """
+        Store encryption key and nonce (securely)
+        In production, you would want to store these in a secure database or KMS
+        """
+        # Convert binary key and nonce to base64 for storage
+        key_b64 = urlsafe_b64encode(key).decode('utf-8')
+        nonce_b64 = urlsafe_b64encode(nonce).decode('utf-8')
         
-    #     # Create encryption info object
-    #     encryption_info = {
-    #         'filename': filename,
-    #         'key': key_b64,
-    #         'nonce': nonce_b64,
-    #         'timestamp': datetime.now().isoformat()
-    #     }
+        # Create encryption info object
+        encryption_info = {
+            'filename': filename,
+            'key': key_b64,
+            'nonce': nonce_b64,
+            'timestamp': datetime.now().isoformat()
+        }
         
-    #     # In a real-world application, you would store this information securely
-    #     # For this example, we'll store it in a JSON file (not recommended for production)
-    #     info_path = os.path.join(settings.MEDIA_ROOT, 'encryption_keys', f"{filename}.key")
-    #     os.makedirs(os.path.dirname(info_path), exist_ok=True)
+        # In a real-world application, you would store this information securely
+        # For this example, we'll store it in a JSON file (not recommended for production)
+        info_path = os.path.join(settings.MEDIA_ROOT, 'encryption_keys', f"{filename}.key")
+        os.makedirs(os.path.dirname(info_path), exist_ok=True)
         
-    #     with open(info_path, 'w') as f:
-    #         json.dump(encryption_info, f)
+        with open(info_path, 'w') as f:
+            json.dump(encryption_info, f)
         
-    #     return True
+        return True
     
     @action(detail=False, methods=['get'])
     def download_openai_report(self, request):
@@ -850,170 +850,170 @@ class ScanResultsViewSet(viewsets.ViewSet):
         except AzureDB.DoesNotExist:
             return Response({"error": "Scan not found"}, status=status.HTTP_404_NOT_FOUND)
     
-    # @action(detail=False, methods=['get'])
-    # def download_encrypted_zip(self, request):
-    #     """
-    #     Generate and download a ZIP file containing the Excel report and 
-    #     all related artifact text files, encrypted with AES-256-GCM
-    #     """
-    #     scan_id = request.query_params.get('id')
-    #     scan_type = request.query_params.get('type')  # 'openai' or 'azure'
+    @action(detail=False, methods=['get'])
+    def download_encrypted_zip(self, request):
+        """
+        Generate and download a ZIP file containing the Excel report and 
+        all related artifact text files, encrypted with AES-256-GCM
+        """
+        scan_id = request.query_params.get('id')
+        scan_type = request.query_params.get('type')  # 'openai' or 'azure'
         
-    #     if not scan_id or not scan_type:
-    #         return Response(
-    #             {"error": "Both 'id' and 'type' parameters are required"}, 
-    #             status=status.HTTP_400_BAD_REQUEST
-    #         )
+        if not scan_id or not scan_type:
+            return Response(
+                {"error": "Both 'id' and 'type' parameters are required"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
-    #     if scan_type not in ['openai', 'azure']:
-    #         return Response(
-    #             {"error": "Type parameter must be 'openai' or 'azure'"}, 
-    #             status=status.HTTP_400_BAD_REQUEST
-    #         )
+        if scan_type not in ['openai', 'azure']:
+            return Response(
+                {"error": "Type parameter must be 'openai' or 'azure'"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
-    #     try:
-    #         # Get the scan and its results based on type
-    #         if scan_type == 'openai':
-    #             scan = OpenAIDB.objects.get(id=scan_id, user=request.user)
-    #             scan_results = ScanResult.objects.filter(openai_scan=scan)
-    #             scan_model = scan.model_name
-    #         else:  # azure
-    #             scan = AzureDB.objects.get(id=scan_id, user=request.user)
-    #             scan_results = ScanResult.objects.filter(azure_scan=scan)
-    #             scan_model = scan.azure_model_name
+        try:
+            # Get the scan and its results based on type
+            if scan_type == 'openai':
+                scan = OpenAIDB.objects.get(id=scan_id, user=request.user)
+                scan_results = ScanResult.objects.filter(openai_scan=scan)
+                scan_model = scan.model_name
+            else:  # azure
+                scan = AzureDB.objects.get(id=scan_id, user=request.user)
+                scan_results = ScanResult.objects.filter(azure_scan=scan)
+                scan_model = scan.azure_model_name
             
-    #         # Get all results with control mappings
-    #         results = []
-    #         artifact_files = []
+            # Get all results with control mappings
+            results = []
+            artifact_files = []
             
-    #         for result in scan_results:
-    #             result_data = {
-    #                 "scan_name": scan.scan_name,
-    #                 "client_name": scan.client_name,
-    #                 "client_app_name": scan.client_app_name,
-    #                 "model_name": scan_model,
-    #                 "probe": result.probe,
-    #                 "prompt": result.prompt,
-    #                 "output": result.output,
-    #                 "score": result.score,
-    #             }
+            for result in scan_results:
+                result_data = {
+                    "scan_name": scan.scan_name,
+                    "client_name": scan.client_name,
+                    "client_app_name": scan.client_app_name,
+                    "model_name": scan_model,
+                    "probe": result.probe,
+                    "prompt": result.prompt,
+                    "output": result.output,
+                    "score": result.score,
+                }
                 
-    #             # Generate artifact file for this result
-    #             if result.prompt and result.output:
-    #                 probe_name = result.probe or 'unknown_probe'
-    #                 artifact_filename = self._generate_artifact_file(
-    #                     result.prompt, 
-    #                     result.output,
-    #                     scan.scan_name,
-    #                     probe_name
-    #                 )
-    #                 artifact_files.append(artifact_filename)
-    #                 result_data['artifact_filename'] = artifact_filename
+                # Generate artifact file for this result
+                if result.prompt and result.output:
+                    probe_name = result.probe or 'unknown_probe'
+                    artifact_filename = self._generate_artifact_file(
+                        result.prompt, 
+                        result.output,
+                        scan.scan_name,
+                        probe_name
+                    )
+                    artifact_files.append(artifact_filename)
+                    result_data['artifact_filename'] = artifact_filename
                 
-    #             # Get control mapping information
-    #             try:
-    #                 if result.probe:
-    #                     control = ProbeControlMapping.objects.get(probe_name=result.probe)
-    #                     result_data.update({
-    #                         "control_title": control.control_title,
-    #                         "control_category": control.control_category,
-    #                         "control_description": control.control_description,
-    #                         "control_observation": control.control_observation,
-    #                         "control_impact": control.control_impact,
-    #                         "control_recommendation": control.control_recommendation,
-    #                         "severity": control.severity,
-    #                         "owasp_top_10_for_llms": control.owasp_top_10_for_llms,
-    #                         "mitre_atlas": control.mitre_atlas,
-    #                     })
-    #             except ProbeControlMapping.DoesNotExist:
-    #                 # No mapping found for this probe
-    #                 result_data.update({
-    #                     "control_title": None,
-    #                     "control_category": None,
-    #                     "control_description": None,
-    #                     "control_observation": None,
-    #                     "control_impact": None,
-    #                     "control_recommendation": None,
-    #                     "severity": None,
-    #                     "owasp_top_10_for_llms": None,
-    #                     "mitre_atlas": None,
-    #                 })
+                # Get control mapping information
+                try:
+                    if result.probe:
+                        control = ProbeControlMapping.objects.get(probe_name=result.probe)
+                        result_data.update({
+                            "control_title": control.control_title,
+                            "control_category": control.control_category,
+                            "control_description": control.control_description,
+                            "control_observation": control.control_observation,
+                            "control_impact": control.control_impact,
+                            "control_recommendation": control.control_recommendation,
+                            "severity": control.severity,
+                            "owasp_top_10_for_llms": control.owasp_top_10_for_llms,
+                            "mitre_atlas": control.mitre_atlas,
+                        })
+                except ProbeControlMapping.DoesNotExist:
+                    # No mapping found for this probe
+                    result_data.update({
+                        "control_title": None,
+                        "control_category": None,
+                        "control_description": None,
+                        "control_observation": None,
+                        "control_impact": None,
+                        "control_recommendation": None,
+                        "severity": None,
+                        "owasp_top_10_for_llms": None,
+                        "mitre_atlas": None,
+                    })
                 
-    #             results.append(result_data)
+                results.append(result_data)
             
-    #         # Create Excel workbook
-    #         wb, _ = self._create_excel_workbook(
-    #             results, 
-    #             scan.scan_name, 
-    #             scan.client_name, 
-    #             scan.client_app_name,
-    #             scan_type
-    #         )
+            # Create Excel workbook
+            wb, _ = self._create_excel_workbook(
+                results, 
+                scan.scan_name, 
+                scan.client_name, 
+                scan.client_app_name,
+                scan_type
+            )
             
-    #         # Create a temporary directory to store files for zipping
-    #         with tempfile.TemporaryDirectory() as temp_dir:
-    #             # Save Excel file to temporary directory
-    #             excel_filename = f"{scan_type.capitalize()}_Scan_{scan.scan_name}_{scan.client_name}.xlsx"
-    #             excel_filepath = os.path.join(temp_dir, excel_filename)
-    #             wb.save(excel_filepath)
+            # Create a temporary directory to store files for zipping
+            with tempfile.TemporaryDirectory() as temp_dir:
+                # Save Excel file to temporary directory
+                excel_filename = f"{scan_type.capitalize()}_Scan_{scan.scan_name}_{scan.client_name}.xlsx"
+                excel_filepath = os.path.join(temp_dir, excel_filename)
+                wb.save(excel_filepath)
                 
-    #             # Copy all artifact files to temporary directory
-    #             artifact_dir = os.path.join(settings.MEDIA_ROOT, 'artifacts')
-    #             for artifact in artifact_files:
-    #                 src_path = os.path.join(artifact_dir, artifact)
-    #                 if os.path.exists(src_path):
-    #                     with open(src_path, 'rb') as src_file:
-    #                         with open(os.path.join(temp_dir, artifact), 'wb') as dst_file:
-    #                             dst_file.write(src_file.read())
+                # Copy all artifact files to temporary directory
+                artifact_dir = os.path.join(settings.MEDIA_ROOT, 'artifacts')
+                for artifact in artifact_files:
+                    src_path = os.path.join(artifact_dir, artifact)
+                    if os.path.exists(src_path):
+                        with open(src_path, 'rb') as src_file:
+                            with open(os.path.join(temp_dir, artifact), 'wb') as dst_file:
+                                dst_file.write(src_file.read())
                 
-    #             # Create a zip file
-    #             zip_buffer = io.BytesIO()
-    #             with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-    #                 # Add Excel file to zip
-    #                 zip_file.write(excel_filepath, excel_filename)
+                # Create a zip file
+                zip_buffer = io.BytesIO()
+                with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+                    # Add Excel file to zip
+                    zip_file.write(excel_filepath, excel_filename)
                     
-    #                 # Add all artifact files to zip
-    #                 for artifact in artifact_files:
-    #                     artifact_path = os.path.join(temp_dir, artifact)
-    #                     if os.path.exists(artifact_path):
-    #                         zip_file.write(artifact_path, os.path.join('artifacts', artifact))
+                    # Add all artifact files to zip
+                    for artifact in artifact_files:
+                        artifact_path = os.path.join(temp_dir, artifact)
+                        if os.path.exists(artifact_path):
+                            zip_file.write(artifact_path, os.path.join('artifacts', artifact))
                 
-    #             # Get zip file contents
-    #             zip_buffer.seek(0)
-    #             zip_data = zip_buffer.getvalue()
+                # Get zip file contents
+                zip_buffer.seek(0)
+                zip_data = zip_buffer.getvalue()
                 
-    #             # Encrypt the zip data with AES-256-GCM
-    #             encrypted_data, key, nonce = self._encrypt_file(zip_data)
+                # Encrypt the zip data with AES-256-GCM
+                encrypted_data, key, nonce = self._encrypt_file(zip_data)
                 
-    #             # Generate a unique filename
-    #             timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
-    #             filename = f"{scan_type.capitalize()}_Scan_{scan.scan_name}_{scan.client_name}_{timestamp}.zip"
-    #             filename = filename.replace(' ', '_')
+                # Generate a unique filename
+                timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+                filename = f"{scan_type.capitalize()}_Scan_{scan.scan_name}_{scan.client_name}_{timestamp}.zip"
+                filename = filename.replace(' ', '_')
                 
-    #             # Store encryption info for later retrieval
-    #             self._store_encryption_info(filename, key, nonce)
+                # Store encryption info for later retrieval
+                self._store_encryption_info(filename, key, nonce)
                 
-    #             # Create HTTP response with encrypted data
-    #             response = HttpResponse(
-    #                 encrypted_data,
-    #                 content_type='application/zip'
-    #             )
-    #             response['Content-Disposition'] = f'attachment; filename="{filename}"'
+                # Create HTTP response with encrypted data
+                response = HttpResponse(
+                    encrypted_data,
+                    content_type='application/zip'
+                )
+                response['Content-Disposition'] = f'attachment; filename="{filename}"'
                 
-    #             # Add encryption headers with key and nonce
-    #             # In production, you should use a more secure method to share the key and nonce
-    #             response['X-Encryption-Key'] = urlsafe_b64encode(key).decode('utf-8')
-    #             response['X-Encryption-Nonce'] = urlsafe_b64encode(nonce).decode('utf-8')
+                # Add encryption headers with key and nonce
+                # In production, you should use a more secure method to share the key and nonce
+                response['X-Encryption-Key'] = urlsafe_b64encode(key).decode('utf-8')
+                response['X-Encryption-Nonce'] = urlsafe_b64encode(nonce).decode('utf-8')
                 
-    #             return response
+                return response
                 
-    #     except (OpenAIDB.DoesNotExist, AzureDB.DoesNotExist):
-    #         return Response({"error": "Scan not found"}, status=status.HTTP_404_NOT_FOUND)
-    #     except Exception as e:
-    #         return Response(
-    #             {"error": f"An error occurred: {str(e)}"}, 
-    #             status=status.HTTP_500_INTERNAL_SERVER_ERROR
-    #         )
+        except (OpenAIDB.DoesNotExist, AzureDB.DoesNotExist):
+            return Response({"error": "Scan not found"}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response(
+                {"error": f"An error occurred: {str(e)}"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
     
     @action(detail=False, methods=['get'])
     def by_openai_scan(self, request):

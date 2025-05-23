@@ -1,28 +1,25 @@
 {
-  "name": "AI Tool Suite",
+  "name": "ai-tool-suite",
   "version": "0.1.0",
   "private": true,
   "dependencies": {
-    "@base-ui-components/react": "^1.0.0-alpha.6",
+    "@base-ui-components/react": "^1.0.0-alpha.8",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.0",
-    "@mui/base": "^5.0.0-beta.69",
-    "@mui/icons-material": "^6.4.5",
-    "@mui/system": "^6.4.3",
-
-    "@react-spring/web": "^9.7.5",
-    "@reduxjs/toolkit": "^2.6.1",
-    "ag-grid-react": "^33.2.1",
-    "axios": "^1.8.3",
-    "echarts-for-react": "^3.0.2",
-    "framer-motion": "^12.4.2",
-    "lucide-react": "^0.475.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-icons": "4.3.1",
+    "@mui/icons-material": "^7.1.0",
+    "@mui/material": "^7.1.0",
+    "@reduxjs/toolkit": "^2.8.2",
+    "@testing-library/dom": "^10.4.0",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^13.5.0",
+    "axios": "^1.9.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
     "react-redux": "^9.2.0",
-    "react-router": "^7.1.5",
-    "react-scripts": "5.0.1"
+    "react-router-dom": "^7.6.0",
+    "react-scripts": "5.0.1",
+    "web-vitals": "^2.1.4"
   },
   "scripts": {
     "start": "react-scripts start",
@@ -47,8 +44,5 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
-  },
-  "devDependencies": {
-    "tailwindcss": "^3.4.17"
   }
 }

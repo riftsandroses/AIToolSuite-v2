@@ -6,7 +6,7 @@ ENV PYTHONUNBUFFERED=1
 ENV PIP_ROOT_USER_ACTION=ignore
 
 # Add Ollama host configuration
-ENV OLLAMA_HOST=http://172.17.0.1:11434
+ENV OLLAMA_HOST=http://host.docker.internal:11434
 
 # Create the non-root user and set up environment
 RUN groupadd --gid 1000 appuser && \
