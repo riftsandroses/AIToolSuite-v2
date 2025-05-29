@@ -12,6 +12,7 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import StopIcon from '@mui/icons-material/Stop';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import { Link } from 'react-router-dom';
 import { useState } from 'react';
 import axios from 'axios';
@@ -21,12 +22,29 @@ const ThreatModel = () => {
   const [loading, setLoading] = useState(false);
   const [containerStatus, setContainerStatus] = useState('stopped'); // 'stopped', 'running'
   const [containerUrl, setContainerUrl] = useState('');
+  const [id, setId] = useState(null);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [iframeError, setIframeError] = useState(false);
 
   const API_URL = process.env.REACT_APP_API_BASE_URL;
   const API_BASE_URL = `${API_URL}/api/v1/aitm/containers`;
   const TOKEN = getAuthCookies().accessToken;
+
+  // Convert localhost container URL to proxied HTTPS URL
+  const convertToProxiedUrl = (containerUrl) => {
+    if (!containerUrl) return '';
+    
+    // Extract port from URL like "http://127.0.0.1/container/8763/"
+    const portMatch = containerUrl.match(/\/container\/(\d+)\//);
+    if (portMatch) {
+      const port = portMatch[1];
+      // Return the proxied URL through your nginx server
+      return `${API_URL}/container/${port}/`;
+    }
+    
+    return containerUrl;
+  };
 
   const fetchContainerDetails = async () => {
     try {
@@ -40,8 +58,12 @@ const ThreatModel = () => {
       );
       
       if (response.data && response.data.container_url) {
-        setContainerUrl(response.data.container_url);
+        const proxiedUrl = convertToProxiedUrl(response.data.container_url);
+        setContainerUrl(proxiedUrl);
         setContainerStatus('running');
+        setId(response.data.id || 1);
+        // Use React state instead of localStorage
+        setIframeError(false);
         return true;
       } else {
         setError('Container URL not available');
@@ -53,42 +75,20 @@ const ThreatModel = () => {
     }
   };
 
-  const handleStartContainer = async () => {
-    setLoading(true);
-    setError('');
-    setMessage('Starting container...');
-    
-    try {
-      await axios.post(
-        `${API_BASE_URL}/1/start/`, 
-        {}, 
-        {
-          headers: {
-            'Authorization': `Bearer ${TOKEN}`
-          }
-        }
-      );
-      
-      // After starting, fetch the container details to get the URL
-      const success = await fetchContainerDetails();
-      if (success) {
-        setMessage('Container started successfully');
-      }
-    } catch (err) {
-      setError(`Failed to start container: ${err.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleStopContainer = async () => {
     setLoading(true);
     setError('');
     setMessage('Stopping container...');
+
+    if(!id) {
+      setError('No container ID found. Please start the container first.');
+      setLoading(false);
+      return;
+    }
     
     try {
       await axios.post(
-        `${API_BASE_URL}/1/stop/`, 
+        `${API_BASE_URL}/${id}/stop/`, 
         {}, 
         {
           headers: {
@@ -111,10 +111,16 @@ const ThreatModel = () => {
     setLoading(true);
     setError('');
     setMessage('Restarting container...');
+
+    if(!id) {
+      setError('No container ID found. Please start the container first.');
+      setLoading(false);
+      return;
+    }
     
     try {
       await axios.post(
-        `${API_BASE_URL}/1/restart/`, 
+        `${API_BASE_URL}/${id}/restart/`, 
         {}, 
         {
           headers: {
@@ -132,6 +138,16 @@ const ThreatModel = () => {
       setError(`Failed to restart container: ${err.message}`);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleIframeError = () => {
+    setIframeError(true);
+  };
+
+  const openInNewTab = () => {
+    if (containerUrl) {
+      window.open(containerUrl, '_blank');
     }
   };
 
@@ -171,7 +187,7 @@ const ThreatModel = () => {
             variant="contained" 
             color="primary" 
             startIcon={<PlayArrowIcon />}
-            onClick={handleStartContainer}
+            onClick={fetchContainerDetails}
             disabled={loading || containerStatus === 'running'}
           >
             Start
@@ -194,6 +210,15 @@ const ThreatModel = () => {
           >
             Restart
           </Button>
+          {containerStatus === 'running' && containerUrl && (
+            <Button 
+              variant="outlined" 
+              startIcon={<OpenInNewIcon />}
+              onClick={openInNewTab}
+            >
+              Open in New Tab
+            </Button>
+          )}
           {loading && <CircularProgress size={24} />}
         </Stack>
 
@@ -206,6 +231,13 @@ const ThreatModel = () => {
         {message && !error && (
           <Alert severity="info" sx={{ mb: 2 }}>
             {message}
+          </Alert>
+        )}
+
+        {iframeError && (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            Unable to load the container in iframe. This might be due to security restrictions. 
+            Try using the "Open in New Tab" button instead.
           </Alert>
         )}
         
@@ -231,6 +263,8 @@ const ThreatModel = () => {
                   border: 'none'
                 }}
                 title="Threat Model Container"
+                onError={handleIframeError}
+                sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
               />
             </Paper>
           </Box>

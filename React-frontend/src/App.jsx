@@ -90,7 +90,7 @@ function App() {
             <Route path="/threat-model" element={
               <UserAuth>
                 <ThreatModel />
-              </UserAuth>
+               </UserAuth>
             } />
         </Routes>
       </Router>

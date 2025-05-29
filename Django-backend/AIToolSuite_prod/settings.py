@@ -28,7 +28,7 @@ SECRET_KEY = 'django-insecure-ryl-i5*s=s9o$l_=(okg1r^3fbp=kl3zxvl_d4xh!8u#%iz2k%
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['dev.aitoolsuite.xyz', 'localhost', '127.0.0.1']
 
 
 # Application definition
@@ -44,7 +44,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
     'django_celery_beat',
-    #'corsheaders',
+    'corsheaders',
 
     'login',
     'homepage',
@@ -62,7 +62,7 @@ MIDDLEWARE = [
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
-    'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    # 'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
 ]
@@ -72,12 +72,16 @@ CORS_ALLOWED_ORIGINS = [
     'http://localhost:3000',
     'http://127.0.0.1:8000',
     'http://127.0.0.1:3000', 
+    'http://dev.aitoolsuite.xyz',
+    'https://dev.aitoolsuite.xyz',
 ]
 
-# CORS_ALLOW_HEADERS = (
-#     *default_headers,
-#     "X-Encryption-Key",
-# )
+CORS_ALLOW_HEADERS = [
+    'X-Requested-With',
+    'Content-Type',
+]
+
+CORS_ALLOW_ALL_ORIGINS = True
 
 ROOT_URLCONF = 'AIToolSuite_prod.urls'
 
@@ -227,3 +231,6 @@ CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'UTC'
+
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')  # If using HTTPS
+USE_X_FORWARDED_HOST = True

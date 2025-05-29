@@ -13,12 +13,6 @@ class UserContainerSerializer(serializers.ModelSerializer):
                            'created_at', 'last_accessed', 'container_url']
     
     def get_container_url(self, obj):
-        # Get the host from request or settings
-        request = self.context.get('request')
-        if request is not None:
-            host = request.get_host().split(':')[0]  # Extract just the hostname part
-        else:
-            # Fallback to localhost if no request context is available
-            host = 'localhost'
-        
-        return f"http://{host}:{obj.port}"
+        # Generate user-specific subdomain
+        subdomain = f"user{obj.user.id}.dev.aitoolsuite.xyz"
+        return f"https://{subdomain}"
