@@ -17,8 +17,10 @@ class DockerService:
         # Use platform-specific config file path
         if platform.system() == "Windows":
             self.config_file_path = str(Path.home() / ".cloudflared" / "config.yml")
+            self.nginx_config_path = "C:/nginx/conf/nginx.conf"  # Adjust to your nginx path
         else:
-            self.config_file_path = "/home/ubuntu/.cloudflared/config.yml"  # Adjust based on your Linux env
+            self.config_file_path = "/home/ubuntu/.cloudflared/config.yml"
+            self.nginx_config_path = "/etc/nginx/nginx.conf"
 
     def create_container(self, user_id, image_name="r1971d3_aitm", port=8501):
         try:
@@ -36,11 +38,23 @@ class DockerService:
                 detach=True,
                 labels=labels,
                 ports={"8501/tcp": assigned_port},
-                restart_policy={"Name": "unless-stopped"}
+                restart_policy={"Name": "unless-stopped"},
+                environment={
+                    "STREAMLIT_SERVER_HEADLESS": "true",
+                    "STREAMLIT_SERVER_PORT": "8501",
+                    "STREAMLIT_SERVER_ADDRESS": "0.0.0.0",
+                    "STREAMLIT_SERVER_BASE_URL_PATH": "",
+                    "STREAMLIT_BROWSER_GATHER_USAGE_STATS": "false",
+                    "STREAMLIT_SERVER_ENABLE_CORS": "false",
+                    "STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION": "false"
+                }
             )
 
             subdomain = f"user{user_id}.dev.aitoolsuite.xyz"
+            
+            # Update both Cloudflare config and Nginx config
             self._update_cloudflare_config(subdomain, assigned_port)
+            self._update_nginx_config(user_id, assigned_port)
             self._create_dns_route(subdomain)
 
             logger.info(f"Created container {container.id} for user {user_id} on port {assigned_port} with subdomain {subdomain}")
@@ -95,6 +109,7 @@ class DockerService:
             if user_id:
                 subdomain = f"user{user_id}.dev.aitoolsuite.xyz"
                 self._remove_from_cloudflare_config(subdomain)
+                self._remove_from_nginx_config(user_id)
                 self._remove_dns_route(subdomain)
 
             logger.info(f"Removed container {container_id}")
@@ -123,6 +138,152 @@ class DockerService:
             logger.error(f"Error cleaning up expired containers: {str(e)}")
             raise
 
+    def _update_nginx_config(self, user_id, port):
+        """Update nginx config to add a new server block for the user subdomain"""
+        try:
+            # Read current nginx config
+            with open(self.nginx_config_path, 'r') as file:
+                nginx_config = file.read()
+
+            # Create new server block for the user subdomain
+            new_server_block = f"""
+    # Server block for user{user_id}
+    server {{
+        listen       80;
+        server_name  user{user_id}.dev.aitoolsuite.xyz;
+        
+        # Handle Streamlit's core static files and API endpoints
+        location /_stcore/ {{
+            proxy_pass         http://127.0.0.1:{port};
+            proxy_set_header   Host $host;
+            proxy_set_header   X-Real-IP $remote_addr;
+            proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header   X-Forwarded-Proto $scheme;
+            proxy_set_header   X-Forwarded-Host $host;
+            proxy_set_header   X-Forwarded-Port $server_port;
+            
+            # WebSocket support for Streamlit
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_read_timeout 86400;
+        }}
+        
+        # Handle legacy static files (redirect to _stcore)
+        location /static/ {{
+            proxy_pass         http://127.0.0.1:{port}/_stcore/static/;
+            proxy_set_header   Host $host;
+            proxy_set_header   X-Real-IP $remote_addr;
+            proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header   X-Forwarded-Proto $scheme;
+        }}
+        
+        # Handle Streamlit's health check
+        location /healthz {{
+            proxy_pass         http://127.0.0.1:{port};
+            proxy_set_header   Host $host;
+        }}
+        
+        # Handle Streamlit's health check (alternative path)
+        location /_stcore/health {{
+            proxy_pass         http://127.0.0.1:{port};
+            proxy_set_header   Host $host;
+        }}
+        
+        # Handle allowed message origins
+        location /_stcore/allowed-message-origins {{
+            proxy_pass         http://127.0.0.1:{port};
+            proxy_set_header   Host $host;
+        }}
+        
+        # Handle vendor files
+        location /vendor/ {{
+            proxy_pass         http://127.0.0.1:{port};
+            proxy_set_header   Host $host;
+        }}
+        
+        # Proxy all other requests to the Streamlit container
+        location / {{
+            proxy_pass         http://127.0.0.1:{port};
+            proxy_set_header   Host $host;
+            proxy_set_header   X-Real-IP $remote_addr;
+            proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header   X-Forwarded-Proto $scheme;
+            proxy_set_header   X-Forwarded-Host $host;
+            proxy_set_header   X-Forwarded-Port $server_port;
+            
+            # WebSocket support for Streamlit
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_read_timeout 86400;
+            proxy_buffering off;
+        }}
+    }}
+"""
+
+            # Remove any existing server block for this user
+            self._remove_from_nginx_config(user_id, update_file=False)
+            
+            # Add the new server block before the closing brace of the http block
+            # Find the last closing brace
+            last_brace_index = nginx_config.rfind('}')
+            if last_brace_index != -1:
+                nginx_config = nginx_config[:last_brace_index] + new_server_block + nginx_config[last_brace_index:]
+            else:
+                # If no closing brace found, append at the end
+                nginx_config += new_server_block
+
+            # Write updated config
+            with open(self.nginx_config_path, 'w') as file:
+                file.write(nginx_config)
+
+            # Reload nginx
+            self._reload_nginx()
+            logger.info(f"Added nginx server block for user{user_id} on port {port}")
+
+        except Exception as e:
+            logger.error(f"Error updating nginx config for user {user_id}: {str(e)}")
+            raise
+
+    def _remove_from_nginx_config(self, user_id, update_file=True):
+        """Remove server block for user subdomain from nginx config"""
+        try:
+            if not update_file:
+                return  # Just skip if we're not updating the file
+                
+            with open(self.nginx_config_path, 'r') as file:
+                nginx_config = file.read()
+
+            # Remove the server block for this user using regex
+            import re
+            pattern = rf'    # Server block for user{user_id}.*?    \}}\n'
+            nginx_config = re.sub(pattern, '', nginx_config, flags=re.DOTALL)
+
+            with open(self.nginx_config_path, 'w') as file:
+                file.write(nginx_config)
+
+            self._reload_nginx()
+            logger.info(f"Removed nginx server block for user{user_id}")
+
+        except Exception as e:
+            logger.error(f"Error removing nginx config for user {user_id}: {str(e)}")
+
+    def _reload_nginx(self):
+        """Reload nginx configuration"""
+        try:
+            if platform.system() == "Windows":
+                # For Windows nginx
+                subprocess.run(["nginx", "-s", "reload"], check=True)
+            else:
+                # For Linux nginx
+                subprocess.run(["sudo", "nginx", "-s", "reload"], check=True)
+            
+            logger.info("Nginx reloaded successfully")
+        except Exception as e:
+            logger.error(f"Error reloading nginx: {str(e)}")
+            raise
+
     def _update_cloudflare_config(self, subdomain, port):
         try:
             # Read current config
@@ -139,14 +300,13 @@ class DockerService:
                 if rule.get('hostname') != subdomain
             ]
 
-            # Create new rule with proper formatting
+            # Create new rule - route to nginx (port 80) instead of directly to container
             new_rule = {
                 'hostname': subdomain,
-                'service': f'http://localhost:{port}'
+                'service': f'http://localhost:80'  # Route to nginx, not directly to container
             }
 
             # Insert before the catch-all rule (service: http_status:404)
-            # Find the catch-all rule index
             catch_all_index = -1
             for i, rule in enumerate(config['ingress']):
                 if 'service' in rule and 'http_status:404' in rule['service']:
@@ -163,7 +323,7 @@ class DockerService:
                 yaml.dump(config, file, default_flow_style=False, sort_keys=False, indent=2)
 
             self._restart_cloudflared()
-            logger.info(f"Added {subdomain} to Cloudflare config on port {port}")
+            logger.info(f"Added {subdomain} to Cloudflare config routing to nginx")
         except Exception as e:
             logger.error(f"Error updating Cloudflare config: {str(e)}")
             raise

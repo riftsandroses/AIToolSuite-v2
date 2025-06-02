@@ -1,0 +1,10 @@
+tunnel: dev2
+credentials-file: C:\Users\Utkarsh\.cloudflared\<tunnel-UUID>.json
+ingress:
+- hostname: <subdomain.domain.xyz>
+  service: http://localhost:80
+  headers:
+    X-Frame-Options: SAMEORIGIN
+- hostname: <subsubdomain.subdomain.domain.xyz>
+  service: http://localhost:80
+- service: http_status:404
