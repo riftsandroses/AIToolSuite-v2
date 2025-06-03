@@ -20,11 +20,11 @@ import SecurityIcon from "@mui/icons-material/Security";
 import AssessmentIcon from "@mui/icons-material/Assessment";
 
 // Import components
-import AppInformation from "../../components/RiskAssessment/AppInformation";
-import ArchitectureHosting from "../../components/RiskAssessment/ArchitectureHosting";
-import RiskSecurity from "../../components/RiskAssessment/RiskSecurity";
-import RiskAnalysis from "../../components/RiskAssessment/RiskAnalysis";
-import AssessmentList from "../../components/RiskAssessment/AssessmentList";
+import AppInformation from "../../Components/RiskAssessment/AppInformation";
+import ArchitectureHosting from "../../Components/RiskAssessment/ArchitectureHosting";
+import RiskSecurity from "../../Components/RiskAssessment/RiskSecurity";
+import RiskAnalysis from "../../Components/RiskAssessment/RiskAnalysis";
+import AssessmentList from "../../Components/RiskAssessment/AssessmentList";
 
 // Import API service
 import { fetchAssessments, createAssessment, updateAssessment, deleteAssessment } from "../../api/assessmentService";

@@ -1,14 +1,15 @@
 import { ThemeProvider, createTheme } from "@mui/material/styles";
 import CssBaseline from "@mui/material/CssBaseline";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
-import Navbar from "./components/navbar";
-import HomePage from "./components/home-page";
-import RiskAssessmentPage from "./pages/RiskAssessment/RiskAssessmentPage";
-import LLMVulnerabilityScanner from "./pages/LLMVulnerabilityScanner/LLMVulnerabilityScanner";
-import LLMVulnerabilityScannerReport from "./pages/LLMVulnerabilityReport/LLMVulnerabilityScannerReport";
+import Navbar from "./Components/navbar";
+import HomePage from "./Components/home-page";
+import RiskAssessmentPage from "./Pages/RiskAssessment/RiskAssessmentPage";
+import LLMVulnerabilityScanner from "./Pages/LLMVulnerabilityScanner/LLMVulnerabilityScanner";
+import LLMVulnerabilityScannerReport from "./Pages/LLMVulnerabilityReport/LLMVulnerabilityScannerReport";
 import UserAuth from "./Guards/UserAuth"
-import Login from "./pages/Login/Login";
-import ThreatModel from "./pages/ThreatModel/ThreatModel";
+import Login from "./Pages/Login/Login";
+import ThreatModel from "./Pages/ThreatModel/ThreatModel";
+import LLMVulnerabilityScannerDetails from "./Pages/LLMVulnerabilityScannerDetails/LLMVulnerabilityScannerDetails";
 
 // Create a dark theme
 const darkTheme = createTheme({
@@ -88,9 +89,14 @@ function App() {
               </UserAuth>
             } />
             <Route path="/threat-model" element={
-              <UserAuth>
+              <UserAuth>  
                 <ThreatModel />
-               </UserAuth>
+              </UserAuth>
+            } />
+            <Route path="/llm-vulnerability-report-details" element={
+              <UserAuth>  
+                <LLMVulnerabilityScannerDetails />
+              </UserAuth>
             } />
         </Routes>
       </Router>

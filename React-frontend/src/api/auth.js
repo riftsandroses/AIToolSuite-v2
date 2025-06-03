@@ -35,7 +35,7 @@ export const signInUser = async ({ email, password }) => {
         },
       }
     );
-    console.log(res.data)
+    // console.log(res.data)
     return res.data;
 
 //   } catch (error) {

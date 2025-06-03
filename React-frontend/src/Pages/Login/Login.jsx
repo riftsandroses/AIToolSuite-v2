@@ -2,9 +2,8 @@ import { useState } from 'react';
 import { useDispatch } from 'react-redux';
 import { setAuthCookies, signInUser } from '../../api/auth';
 import { loggedInUserSlice } from '../../Store/Slices';
-import { useNavigate } from 'react-router';
-import Input from "../../components/Input/Input";
-import Snackbar from '../../components/Snackbar/Snackbar';
+import Input from "../../Components/Input/Input";
+import Snackbar from '../../Components/Snackbar/Snackbar';
 import { styled } from '@mui/system';
 
 // Styled components
@@ -84,7 +83,6 @@ const LoginButton = styled('button')`
 
 const Login = () => {
     const dispatch = useDispatch();
-    const navigate = useNavigate();
     const [userCreds, setUserCreds] = useState({
         email: "",
         password: "",
@@ -145,7 +143,6 @@ const Login = () => {
             });
             setOpenSnackbar(true);
             
-            // Short delay before redirecting
             window.location.href = "/";
         } catch (error) {
             setErrorMsg(error.response?.data?.error || "Login failed. Please try again.");

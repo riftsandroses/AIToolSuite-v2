@@ -36,7 +36,7 @@ RUN ${VIRTUAL_ENV}/bin/pip install --no-cache-dir -r requirements.txt
 
 # Test if the container is listening on port 8501
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD curl --fail http://localhost:8501/_stcore/health
+    CMD curl --fail http://localhost:8501/ || exit 1
 
 # Configure the container to run as an executable
 ENTRYPOINT ["streamlit", "run", "main.py", "--server.port=8501", "--server.address=0.0.0.0"]

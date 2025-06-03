@@ -11,19 +11,43 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 class DockerService:
-    def __init__(self):
+    def __init__(self, db_service=None):
         self.client = docker.from_env()
+        self.db_service = db_service  # Add database service dependency
 
         # Use platform-specific config file path
         if platform.system() == "Windows":
             self.config_file_path = str(Path.home() / ".cloudflared" / "config.yml")
-            self.nginx_config_path = "C:/nginx/conf/nginx.conf"  # Adjust to your nginx path
+            self.nginx_config_path = "C:/nginx/conf/nginx.conf"
         else:
             self.config_file_path = "/home/ubuntu/.cloudflared/config.yml"
             self.nginx_config_path = "/etc/nginx/nginx.conf"
 
+    def get_or_create_container(self, user_id, image_name="r1971d3_aitm", port=8501):
+        """Get existing container or create new one if none exists"""
+        try:
+            # First, try to get existing container
+            existing_container = self.get_user_container(user_id)
+            
+            if existing_container and existing_container['status'] in ['running', 'created']:
+                logger.info(f"Found existing container for user {user_id}: {existing_container['container_id']}")
+                return existing_container
+            
+            # If no existing container or it's stopped, create new one
+            return self.create_container(user_id, image_name, port)
+            
+        except Exception as e:
+            logger.error(f"Error in get_or_create_container for user {user_id}: {str(e)}")
+            raise
+
     def create_container(self, user_id, image_name="r1971d3_aitm", port=8501):
         try:
+            # Check if user already has an active container
+            existing = self.get_user_container(user_id)
+            if existing and existing['status'] in ['running', 'created']:
+                logger.info(f"User {user_id} already has active container: {existing['container_id']}")
+                return existing
+
             container_name = f"r1971d3_aitm_{user_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
             labels = {
                 "user_id": str(user_id),
@@ -31,6 +55,10 @@ class DockerService:
                 "app": "stridegpt"
             }
             assigned_port = random.randint(8501, 9000)
+
+            # Ensure port is not already in use
+            while self._is_port_in_use(assigned_port):
+                assigned_port = random.randint(8501, 9000)
 
             container = self.client.containers.run(
                 image=image_name,
@@ -52,23 +80,51 @@ class DockerService:
 
             subdomain = f"user{user_id}.dev.aitoolsuite.xyz"
             
-            # Update both Cloudflare config and Nginx config
+            # Update configurations
             self._update_cloudflare_config(subdomain, assigned_port)
             self._update_nginx_config(user_id, assigned_port)
             self._create_dns_route(subdomain)
 
-            logger.info(f"Created container {container.id} for user {user_id} on port {assigned_port} with subdomain {subdomain}")
-
-            return {
+            container_details = {
                 "container_id": container.id,
                 "container_name": container_name,
                 "port": assigned_port,
                 "subdomain": subdomain,
-                "status": container.status
+                "status": container.status,
+                "user_id": user_id,
+                "created_at": datetime.now().isoformat()
             }
+
+            # Save to database if service is available
+            if self.db_service:
+                try:
+                    self.db_service.save_container_details(container_details)
+                    logger.info(f"Saved container details to database for user {user_id}")
+                except Exception as db_error:
+                    logger.error(f"Failed to save container to database: {str(db_error)}")
+
+            logger.info(f"Created container {container.id} for user {user_id} on port {assigned_port}")
+
+            return container_details
         except Exception as e:
             logger.error(f"Error creating container for user {user_id}: {str(e)}")
             raise
+
+    def _is_port_in_use(self, port):
+        """Check if a port is already in use by another container"""
+        try:
+            containers = self.client.containers.list(all=True)
+            for container in containers:
+                container_info = self.client.api.inspect_container(container.id)
+                ports = container_info['NetworkSettings']['Ports']
+                for container_port, host_configs in ports.items():
+                    if host_configs:
+                        for config in host_configs:
+                            if config.get('HostPort') == str(port):
+                                return True
+            return False
+        except Exception:
+            return False
 
     def get_user_container(self, user_id):
         try:
@@ -79,7 +135,13 @@ class DockerService:
             if not containers:
                 return None
 
-            newest_container = max(containers, key=lambda c: c.labels.get('created_at', ''))
+            # Get the newest running container first, then newest overall
+            running_containers = [c for c in containers if c.status == 'running']
+            if running_containers:
+                newest_container = max(running_containers, key=lambda c: c.labels.get('created_at', ''))
+            else:
+                newest_container = max(containers, key=lambda c: c.labels.get('created_at', ''))
+
             container_info = self.client.api.inspect_container(newest_container.id)
             port_mappings = container_info['NetworkSettings']['Ports'].get('8501/tcp', [])
             host_port = port_mappings[0]['HostPort'] if port_mappings else None
@@ -90,7 +152,8 @@ class DockerService:
                 "container_name": newest_container.name,
                 "port": host_port,
                 "subdomain": subdomain,
-                "status": newest_container.status
+                "status": newest_container.status,
+                "user_id": user_id
             }
         except Exception as e:
             logger.error(f"Error retrieving container for user {user_id}: {str(e)}")
@@ -111,6 +174,13 @@ class DockerService:
                 self._remove_from_cloudflare_config(subdomain)
                 self._remove_from_nginx_config(user_id)
                 self._remove_dns_route(subdomain)
+
+            # Remove from database if service is available
+            if self.db_service and user_id:
+                try:
+                    self.db_service.remove_container_details(user_id, container_id)
+                except Exception as db_error:
+                    logger.error(f"Failed to remove container from database: {str(db_error)}")
 
             logger.info(f"Removed container {container_id}")
             return True
@@ -144,6 +214,9 @@ class DockerService:
             # Read current nginx config
             with open(self.nginx_config_path, 'r') as file:
                 nginx_config = file.read()
+
+            # FIXED: Actually remove existing server block first
+            nginx_config = self._remove_server_block_from_config(nginx_config, user_id)
 
             # Create new server block for the user subdomain
             new_server_block = f"""
@@ -222,16 +295,11 @@ class DockerService:
     }}
 """
 
-            # Remove any existing server block for this user
-            self._remove_from_nginx_config(user_id, update_file=False)
-            
             # Add the new server block before the closing brace of the http block
-            # Find the last closing brace
             last_brace_index = nginx_config.rfind('}')
             if last_brace_index != -1:
                 nginx_config = nginx_config[:last_brace_index] + new_server_block + nginx_config[last_brace_index:]
             else:
-                # If no closing brace found, append at the end
                 nginx_config += new_server_block
 
             # Write updated config
@@ -246,19 +314,20 @@ class DockerService:
             logger.error(f"Error updating nginx config for user {user_id}: {str(e)}")
             raise
 
-    def _remove_from_nginx_config(self, user_id, update_file=True):
+    def _remove_server_block_from_config(self, nginx_config, user_id):
+        """Remove server block for user from nginx config string"""
+        import re
+        pattern = rf'    # Server block for user{user_id}.*?    \}}\n'
+        return re.sub(pattern, '', nginx_config, flags=re.DOTALL)
+
+    def _remove_from_nginx_config(self, user_id):
         """Remove server block for user subdomain from nginx config"""
         try:
-            if not update_file:
-                return  # Just skip if we're not updating the file
-                
             with open(self.nginx_config_path, 'r') as file:
                 nginx_config = file.read()
 
-            # Remove the server block for this user using regex
-            import re
-            pattern = rf'    # Server block for user{user_id}.*?    \}}\n'
-            nginx_config = re.sub(pattern, '', nginx_config, flags=re.DOTALL)
+            # Remove the server block for this user
+            nginx_config = self._remove_server_block_from_config(nginx_config, user_id)
 
             with open(self.nginx_config_path, 'w') as file:
                 file.write(nginx_config)
@@ -273,10 +342,8 @@ class DockerService:
         """Reload nginx configuration"""
         try:
             if platform.system() == "Windows":
-                # For Windows nginx
                 subprocess.run(["nginx", "-s", "reload"], check=True)
             else:
-                # For Linux nginx
                 subprocess.run(["sudo", "nginx", "-s", "reload"], check=True)
             
             logger.info("Nginx reloaded successfully")
@@ -286,11 +353,9 @@ class DockerService:
 
     def _update_cloudflare_config(self, subdomain, port):
         try:
-            # Read current config
             with open(self.config_file_path, 'r') as file:
                 config = yaml.safe_load(file)
 
-            # Ensure config structure exists
             if 'ingress' not in config:
                 config['ingress'] = []
 
@@ -300,13 +365,13 @@ class DockerService:
                 if rule.get('hostname') != subdomain
             ]
 
-            # Create new rule - route to nginx (port 80) instead of directly to container
+            # Create new rule - route to nginx (port 80)
             new_rule = {
                 'hostname': subdomain,
-                'service': f'http://localhost:80'  # Route to nginx, not directly to container
+                'service': f'http://localhost:80'
             }
 
-            # Insert before the catch-all rule (service: http_status:404)
+            # Insert before the catch-all rule
             catch_all_index = -1
             for i, rule in enumerate(config['ingress']):
                 if 'service' in rule and 'http_status:404' in rule['service']:
@@ -318,7 +383,6 @@ class DockerService:
             else:
                 config['ingress'].append(new_rule)
 
-            # Write config with proper formatting
             with open(self.config_file_path, 'w') as file:
                 yaml.dump(config, file, default_flow_style=False, sort_keys=False, indent=2)
 
@@ -349,23 +413,14 @@ class DockerService:
     def _create_dns_route(self, subdomain):
         """Create DNS route for the subdomain through Cloudflare tunnel"""
         try:
-            # Extract tunnel name from config
             tunnel_name = self._get_tunnel_name()
-            
-            # Run the DNS route command
             cmd = ["cloudflared", "tunnel", "route", "dns", tunnel_name, subdomain]
             
-            result = subprocess.run(
-                cmd, 
-                capture_output=True, 
-                text=True, 
-                check=False
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False)
             
             if result.returncode == 0:
                 logger.info(f"Successfully created DNS route for {subdomain}")
             else:
-                # Check if the route already exists (this is often okay)
                 if "already exists" in result.stderr.lower() or "conflict" in result.stderr.lower():
                     logger.info(f"DNS route for {subdomain} already exists")
                 else:
@@ -373,23 +428,14 @@ class DockerService:
             
         except Exception as e:
             logger.error(f"Error creating DNS route for {subdomain}: {str(e)}")
-            # Don't raise the exception as DNS route creation failure shouldn't stop container creation
 
     def _remove_dns_route(self, subdomain):
         """Remove DNS route for the subdomain"""
         try:
-            # Get tunnel name
             tunnel_name = self._get_tunnel_name()
-            
-            # Run the DNS route deletion command
             cmd = ["cloudflared", "tunnel", "route", "dns", "--overwrite-dns", tunnel_name, subdomain]
             
-            result = subprocess.run(
-                cmd, 
-                capture_output=True, 
-                text=True, 
-                check=False
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False)
             
             if result.returncode == 0:
                 logger.info(f"Successfully removed DNS route for {subdomain}")
@@ -405,23 +451,20 @@ class DockerService:
             with open(self.config_file_path, 'r') as file:
                 config = yaml.safe_load(file)
             
-            tunnel_name = config.get('tunnel', 'dev2')  # Default to 'dev2' if not found
+            tunnel_name = config.get('tunnel', 'dev2')
             return tunnel_name
         except Exception as e:
             logger.error(f"Error reading tunnel name from config: {str(e)}")
-            return 'dev2'  # Fallback to your tunnel name
+            return 'dev2'
 
     def _restart_cloudflared(self):
         try:
             if platform.system() == "Windows":
-                # Kill cloudflared and restart
                 subprocess.run(["taskkill", "/F", "/IM", "cloudflared.exe"], check=False)
-                # Add a small delay to ensure process is killed
                 import time
                 time.sleep(2)
                 subprocess.Popen(["cloudflared", "tunnel", "run", "dev2"], shell=True)
             else:
-                # Try systemd first
                 try:
                     subprocess.run(["sudo", "systemctl", "restart", "cloudflared"], check=True)
                 except subprocess.CalledProcessError:
