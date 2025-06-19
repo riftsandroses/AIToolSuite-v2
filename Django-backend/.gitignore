@@ -60,3 +60,13 @@ docs/_build/
 *.bak
 *.dat 
 *.dir
+
+# Ignore Python cache files
+**/__pycache__/
+
+# Ignore Django migrations
+**/migrations/
+!*/migrations/__init__.py
+
+# Ignore files in media/csv
+/media/csv/**
