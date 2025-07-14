@@ -24,7 +24,7 @@ import LogoutIcon from "@mui/icons-material/Logout";
 import CloseIcon from "@mui/icons-material/Close";
 import { useMediaQuery, useTheme } from "@mui/material";
 import { Link, useNavigate } from "react-router-dom";
-import { getAuthCookies,deleteAuthCookies } from "../api/auth"; 
+import { getAuthCookies, deleteAuthCookies } from "../api/auth";
 
 export default function Navbar() {
   const theme = useTheme();
@@ -37,12 +37,14 @@ export default function Navbar() {
   // Desktop dropdown states
   const [insightsLabAnchorEl, setInsightsLabAnchorEl] = useState(null);
   const [attackLabAnchorEl, setAttackLabAnchorEl] = useState(null);
+  const [windowLabAnchorEl, setWindowLabAnchorEl] = useState(null);
   const [userMenuAnchorEl, setUserMenuAnchorEl] = useState(null);
 
   // Mobile menu state
   const [mobileOpen, setMobileOpen] = useState(false);
   const [insightsLabOpen, setInsightsLabOpen] = useState(false);
   const [attackLabOpen, setAttackLabOpen] = useState(false);
+  const [windowLabOpen, setWindowLabOpen] = useState(false);
 
   // Check authentication status
   useEffect(() => {
@@ -67,6 +69,14 @@ export default function Navbar() {
     setAttackLabAnchorEl(null);
   };
 
+  const handleWindowLabMenuOpen = (event) => {
+    setWindowLabAnchorEl(event.currentTarget);
+  };
+
+  const handleWindowLabMenuClose = () => {
+    setWindowLabAnchorEl(null);
+  };
+
   const handleUserMenuClose = () => {
     setUserMenuAnchorEl(null);
   };
@@ -84,12 +94,16 @@ export default function Navbar() {
     setAttackLabOpen(!attackLabOpen);
   };
 
+  const toggleWindowLabMenu = () => {
+    setWindowLabOpen(!windowLabOpen);
+  };
+
   // Navigation handlers
   const handleRiskAssessmentClick = () => {
     navigate("/risk-assessment");
     setMobileOpen(false);
   };
-  
+
   const handleThreatModelClick = () => {
     navigate("/threat-model");
     setMobileOpen(false);
@@ -171,6 +185,56 @@ export default function Navbar() {
 
       <Button
         color="inherit"
+        aria-controls="window-lab-menu"
+        aria-haspopup="true"
+        onClick={handleWindowLabMenuOpen}
+        endIcon={<ExpandMoreIcon />}
+        sx={{
+          mr: 2,
+          textTransform: "none",
+          fontWeight: 500,
+          fontSize: "0.95rem",
+          "&:hover": {
+            backgroundColor: "rgba(255, 255, 255, 0.08)",
+            transition: "all 0.3s ease",
+          },
+        }}
+      >
+        Windows Attack Lab
+      </Button>
+      <Menu
+        id="window-lab-menu"
+        anchorEl={windowLabAnchorEl}
+        keepMounted
+        open={Boolean(windowLabAnchorEl)}
+        onClose={handleWindowLabMenuClose}
+        MenuListProps={{
+          "aria-labelledby": "window-lab-button",
+        }}
+        PaperProps={{
+          elevation: 8,
+          sx: {
+            mt: 1.5,
+            borderRadius: 2,
+            minWidth: 200,
+            "& .MuiMenuItem-root": {
+              fontSize: "0.9rem",
+              py: 1.5,
+              "&:hover": {
+                backgroundColor: "rgba(144, 202, 249, 0.12)",
+                transition: "all 0.2s ease",
+              },
+            },
+          },
+        }}
+      >
+        <Link to="/dll" style={{ textDecoration: "none", color: "inherit" }}>
+          <MenuItem onClick={handleWindowLabMenuClose}>DLL Hijacker (AI Agent)</MenuItem>
+        </Link>
+      </Menu>
+
+      <Button
+        color="inherit"
         aria-controls="attack-lab-menu"
         aria-haspopup="true"
         onClick={handleAttackLabMenuOpen}
@@ -235,7 +299,7 @@ export default function Navbar() {
       >
         Risk Assessment Lab
       </Button>
-      
+
       <Button
         color="inherit"
         onClick={handleThreatModelClick}
@@ -268,7 +332,7 @@ export default function Navbar() {
               backgroundColor: "rgba(255, 57, 57, 0.08)",
               borderColor: "rgba(255, 255, 255, 0.5)",
               transition: "all 0.3s ease",
-              color:"rgba(255, 57, 57, 0.987)"
+              color: "rgba(255, 57, 57, 0.987)"
             },
           }}
         >
@@ -302,9 +366,9 @@ export default function Navbar() {
   const mobileDrawer = (
     <Box sx={{ width: 300, height: "100%" }}>
       {/* Drawer Header */}
-      <Box sx={{ 
-        display: "flex", 
-        alignItems: "center", 
+      <Box sx={{
+        display: "flex",
+        alignItems: "center",
         justifyContent: "space-between",
         p: 2,
         borderBottom: "1px solid rgba(255, 255, 255, 0.12)"
@@ -320,9 +384,9 @@ export default function Navbar() {
       <List sx={{ pt: 1 }}>
         {/* Reports & Insights Lab */}
         <ListItem disablePadding>
-          <ListItemButton 
-            onClick={toggleInsightsLabMenu} 
-            sx={{ 
+          <ListItemButton
+            onClick={toggleInsightsLabMenu}
+            sx={{
               textAlign: "left",
               py: 1.5,
               "&:hover": {
@@ -330,8 +394,8 @@ export default function Navbar() {
               },
             }}
           >
-            <ListItemText 
-              primary="Reports & Insights Lab" 
+            <ListItemText
+              primary="Reports & Insights Lab"
               primaryTypographyProps={{ fontWeight: 500 }}
             />
             {insightsLabOpen ? <ExpandLessIcon /> : <ExpandMoreIcon />}
@@ -340,18 +404,59 @@ export default function Navbar() {
         <Collapse in={insightsLabOpen} timeout="auto" unmountOnExit>
           <List component="div" disablePadding>
             <Link to="/llm-vulnerability-scanner-report" style={{ textDecoration: "none", color: "inherit" }}>
-              <ListItemButton 
-                sx={{ 
-                  pl: 4, 
+              <ListItemButton
+                sx={{
+                  pl: 4,
                   py: 1,
                   "&:hover": {
                     backgroundColor: "rgba(144, 202, 249, 0.08)",
                   },
                 }}
-                onClick={handleMenuItemClick(() => {})}
+                onClick={handleMenuItemClick(() => { })}
               >
-                <ListItemText 
-                  primary="LLM Vulnerability Report" 
+                <ListItemText
+                  primary="LLM Vulnerability Report"
+                  primaryTypographyProps={{ fontSize: "0.9rem" }}
+                />
+              </ListItemButton>
+            </Link>
+          </List>
+        </Collapse>
+
+        {/* Windows Attack Lab */}
+        <ListItem disablePadding>
+          <ListItemButton
+            onClick={toggleWindowLabMenu}
+            sx={{
+              textAlign: "left",
+              py: 1.5,
+              "&:hover": {
+                backgroundColor: "rgba(144, 202, 249, 0.08)",
+              },
+            }}
+          >
+            <ListItemText
+              primary="Windows Attack Lab"
+              primaryTypographyProps={{ fontWeight: 500 }}
+            />
+            {windowLabOpen ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+          </ListItemButton>
+        </ListItem>
+        <Collapse in={windowLabOpen} timeout="auto" unmountOnExit>
+          <List component="div" disablePadding>
+            <Link to="/dll" style={{ textDecoration: "none", color: "inherit" }}>
+              <ListItemButton
+                sx={{
+                  pl: 4,
+                  py: 1,
+                  "&:hover": {
+                    backgroundColor: "rgba(144, 202, 249, 0.08)",
+                  },
+                }}
+                onClick={handleMenuItemClick(() => { })}
+              >
+                <ListItemText
+                  primary="DLL Hijacker (AI Agent)"
                   primaryTypographyProps={{ fontSize: "0.9rem" }}
                 />
               </ListItemButton>
@@ -361,9 +466,9 @@ export default function Navbar() {
 
         {/* AI Attack Lab */}
         <ListItem disablePadding>
-          <ListItemButton 
-            onClick={toggleAttackLabMenu} 
-            sx={{ 
+          <ListItemButton
+            onClick={toggleAttackLabMenu}
+            sx={{
               textAlign: "left",
               py: 1.5,
               "&:hover": {
@@ -371,8 +476,8 @@ export default function Navbar() {
               },
             }}
           >
-            <ListItemText 
-              primary="AI Attack Lab" 
+            <ListItemText
+              primary="AI Attack Lab"
               primaryTypographyProps={{ fontWeight: 500 }}
             />
             {attackLabOpen ? <ExpandLessIcon /> : <ExpandMoreIcon />}
@@ -381,18 +486,18 @@ export default function Navbar() {
         <Collapse in={attackLabOpen} timeout="auto" unmountOnExit>
           <List component="div" disablePadding>
             <Link to="/llm-vulnerability-scanner" style={{ textDecoration: "none", color: "inherit" }}>
-              <ListItemButton 
-                sx={{ 
-                  pl: 4, 
+              <ListItemButton
+                sx={{
+                  pl: 4,
                   py: 1,
                   "&:hover": {
                     backgroundColor: "rgba(144, 202, 249, 0.08)",
                   },
                 }}
-                onClick={handleMenuItemClick(() => {})}
+                onClick={handleMenuItemClick(() => { })}
               >
-                <ListItemText 
-                  primary="LLM Vulnerability Scanner" 
+                <ListItemText
+                  primary="LLM Vulnerability Scanner"
                   primaryTypographyProps={{ fontSize: "0.9rem" }}
                 />
               </ListItemButton>
@@ -403,18 +508,18 @@ export default function Navbar() {
         {/* Risk Assessment Lab */}
         <ListItem disablePadding>
           <Link to="/risk-assessment" style={{ textDecoration: "none", color: "inherit" }}>
-            <ListItemButton 
-              sx={{ 
+            <ListItemButton
+              sx={{
                 textAlign: "left",
                 py: 1.5,
                 "&:hover": {
                   backgroundColor: "rgba(144, 202, 249, 0.08)",
                 },
-              }} 
+              }}
               onClick={handleMenuItemClick(handleRiskAssessmentClick)}
             >
-              <ListItemText 
-                primary="Risk Assessment Lab" 
+              <ListItemText
+                primary="Risk Assessment Lab"
                 primaryTypographyProps={{ fontWeight: 500 }}
               />
             </ListItemButton>
@@ -424,18 +529,18 @@ export default function Navbar() {
         {/* Threat Model */}
         <ListItem disablePadding>
           <Link to="/threat-model" style={{ textDecoration: "none", color: "inherit" }}>
-            <ListItemButton 
-              sx={{ 
+            <ListItemButton
+              sx={{
                 textAlign: "left",
                 py: 1.5,
                 "&:hover": {
                   backgroundColor: "rgba(144, 202, 249, 0.08)",
                 },
-              }} 
+              }}
               onClick={handleMenuItemClick(handleThreatModelClick)}
             >
-              <ListItemText 
-                primary="Threat Model" 
+              <ListItemText
+                primary="Threat Model"
                 primaryTypographyProps={{ fontWeight: 500 }}
               />
             </ListItemButton>
@@ -447,9 +552,9 @@ export default function Navbar() {
         {/* Login/Logout */}
         {isAuthenticated ? (
           <ListItem disablePadding>
-            <ListItemButton 
+            <ListItemButton
               onClick={handleMenuItemClick(handleLogoutClick)}
-              sx={{ 
+              sx={{
                 textAlign: "left",
                 py: 1.5,
                 "&:hover": {
@@ -458,17 +563,17 @@ export default function Navbar() {
               }}
             >
               <LogoutIcon sx={{ mr: 2, color: "error.main" }} />
-              <ListItemText 
-                primary="Logout" 
+              <ListItemText
+                primary="Logout"
                 primaryTypographyProps={{ fontWeight: 500, color: "error.main" }}
               />
             </ListItemButton>
           </ListItem>
         ) : (
           <ListItem disablePadding>
-            <ListItemButton 
+            <ListItemButton
               onClick={handleMenuItemClick(handleLoginClick)}
-              sx={{ 
+              sx={{
                 textAlign: "left",
                 py: 1.5,
                 "&:hover": {
@@ -477,8 +582,8 @@ export default function Navbar() {
               }}
             >
               <LoginIcon sx={{ mr: 2, color: "primary.main" }} />
-              <ListItemText 
-                primary="Login" 
+              <ListItemText
+                primary="Login"
                 primaryTypographyProps={{ fontWeight: 500, color: "primary.main" }}
               />
             </ListItemButton>
@@ -490,8 +595,8 @@ export default function Navbar() {
 
   return (
     <>
-      <AppBar 
-        position="static" 
+      <AppBar
+        position="static"
         color="transparent"
         elevation={0}
         sx={{
@@ -532,7 +637,7 @@ export default function Navbar() {
                 aria-label="open drawer"
                 edge="start"
                 onClick={handleDrawerToggle}
-                sx={{ 
+                sx={{
                   ml: "auto",
                   "&:hover": {
                     backgroundColor: "rgba(255, 255, 255, 0.08)",
@@ -560,8 +665,8 @@ export default function Navbar() {
         }}
         sx={{
           display: { xs: "block", md: "none" },
-          "& .MuiDrawer-paper": { 
-            boxSizing: "border-box", 
+          "& .MuiDrawer-paper": {
+            boxSizing: "border-box",
             width: 300,
             backgroundColor: "background.paper",
           },

@@ -10,6 +10,7 @@ import UserAuth from "./Guards/UserAuth"
 import Login from "./Pages/Login/Login";
 import ThreatModel from "./Pages/ThreatModel/ThreatModel";
 import LLMVulnerabilityScannerDetails from "./Pages/LLMVulnerabilityScannerDetails/LLMVulnerabilityScannerDetails";
+import DLLScannerPage from "./Pages/DLLScanner/DLLScannerPage";
 
 // Create a dark theme
 const darkTheme = createTheme({
@@ -77,27 +78,32 @@ function App() {
             <UserAuth>
               <RiskAssessmentPage />
             </UserAuth>
-            } />
+          } />
           <Route path="/llm-vulnerability-scanner" element={
-              <UserAuth>
-                <LLMVulnerabilityScanner />
-              </UserAuth>
-            } />
-            <Route path="/llm-vulnerability-scanner-report" element={
-              <UserAuth>
-                <LLMVulnerabilityScannerReport />
-              </UserAuth>
-            } />
-            <Route path="/threat-model" element={
-              <UserAuth>  
-                <ThreatModel />
-              </UserAuth>
-            } />
-            <Route path="/llm-vulnerability-report-details" element={
-              <UserAuth>  
-                <LLMVulnerabilityScannerDetails />
-              </UserAuth>
-            } />
+            <LLMVulnerabilityScanner />
+            // <UserAuth>
+            // </UserAuth>
+          } />
+          <Route path="/llm-vulnerability-scanner-report" element={
+            <UserAuth>
+              <LLMVulnerabilityScannerReport />
+            </UserAuth>
+          } />
+          <Route path="/threat-model" element={
+            <UserAuth>
+              <ThreatModel />
+            </UserAuth>
+          } />
+          <Route path="/llm-vulnerability-report-details" element={
+            <UserAuth>
+              <LLMVulnerabilityScannerDetails />
+            </UserAuth>
+          } />
+          <Route path="/dll" element={
+            // <UserAuth>
+            // </UserAuth>
+            <DLLScannerPage />
+          } />
         </Routes>
       </Router>
     </ThemeProvider>
@@ -105,3 +111,8 @@ function App() {
 }
 
 export default App;
+
+// kpmg-tester
+// Qwerty@12345
+// 192.168.10.47
+// Server1
