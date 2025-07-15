@@ -53,6 +53,7 @@ INSTALLED_APPS = [
     'scanner_results',
     'risk_assessment',
     'connector',
+    'api_orch'
 ]
 
 MIDDLEWARE = [
@@ -170,8 +171,14 @@ AUTH_USER_MODEL = 'auth.User'
 
 LOGIN_URL = '/login/'
 
+#Media files configuration (for Postman collection uploads)
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
+# File upload settings
+FILE_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024  # 5MB
+DATA_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024  # 5MB
+
 
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),  # Adjust as needed

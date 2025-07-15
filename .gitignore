@@ -1,143 +1,94 @@
 .DS_Store
-AIToolSuite
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+AIToolSuite/
 
-# dependencies
+# Python/Django specific
+__pycache__/
+*.py[cod]
+*.pyc
+*.DS_Store
+*.log
+*.pot
+db.sqlite3
+scanner_logs.log
+
+# Django migrations (except __init__.py)
+**/migrations/
+!*/migrations/__init__.py
+
+# Virtual environment
+venv/
+env/
+AIToolSuite/
+
+# Node.js
 /node_modules
 /.pnp
 .pnp.js
 
-# testing
+# Testing
 /coverage
+.tox/
+.coverage
+.cache
+nosetests.xml
+coverage.xml
 
-# production
+# Production
 /build
+/dist
+*.egg-info/
+.installed.cfg
+*.egg
 
-# misc
-.DS_Store
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Environment files
+.env
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
 
+# Logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-.env
+# IDE/Editor
+.project
+.pydevproject
+.ropeproject
+.mr.developer.cfg
 
-# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[cod]
-*.pyc
-*.DS_Store
+# Sphinx documentation
+docs/_build/
 
 # C extensions
 *.so
 
-# Distribution / packaging
+# Distribution/packaging
 bin/
 build/
 develop-eggs/
-dist/
 eggs/
 lib/
 lib64/
 parts/
 sdist/
 var/
-*.egg-info/
-.installed.cfg
-*.egg
-
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Unit test / coverage reports
-.tox/
-.coverage
-.cache
-nosetests.xml
-coverage.xml
 
 # Translations
 *.mo
 
-# Mr Developer
-.mr.developer.cfg
-.project
-.pydevproject
-
-# Rope
-.ropeproject
-
-# Django stuff:
-*.log
-*.pot
-
-# Sphinx documentation
-docs/_build/
-
-# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[cod]
-*.pyc
-*.DS_Store
-
-artifacts
-encryption_keys
-yaml
-
-
-# C extensions
-*.so
-
-# Distribution / packaging
-bin/
-build/
-develop-eggs/
-dist/
-eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-*.egg-info/
-.installed.cfg
-*.egg
-
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Unit test / coverage reports
-.tox/
-.coverage
-.cache
-nosetests.xml
-coverage.xml
-
-# Translations
-*.mo
-
-# Mr Developer
-.mr.developer.cfg
-.project
-.pydevproject
-
-# Rope
-.ropeproject
-
-# Django stuff:
-*.log
-*.pot
-
-# Sphinx documentation
-docs/_build/
-
-# Celery files:
+# Celery files
 *.bak
 *.dat 
 *.dir
+
+# Custom folders/files
+artifacts/
+encryption_keys/
+yaml/
+/media/csv/**
