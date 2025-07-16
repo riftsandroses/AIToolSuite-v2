@@ -110,8 +110,12 @@ WSGI_APPLICATION = 'AIToolSuite_prod.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'AIToolSuite',
+        'USER': 'postgres',
+        'PASSWORD': 'Qwerty@050725',
+        'HOST': 'localhost',
+        'PORT': '5432',
     }
 }
 
