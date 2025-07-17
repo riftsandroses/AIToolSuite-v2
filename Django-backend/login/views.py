@@ -18,10 +18,12 @@ class UserLoginView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        serializer = LoginSerializer(data=request.data)
+        # Pass request context to serializer for IP address in hCaptcha validation
+        serializer = LoginSerializer(data=request.data, context={'request': request})
         if serializer.is_valid():
             email = serializer.validated_data['email']
             password = serializer.validated_data['password']
+            # hcaptcha_response is already validated in the serializer
 
             try:
                 user = User.objects.get(email=email)
@@ -50,8 +52,10 @@ class UserLoginView(APIView):
                         "message": "TOTP is required. Please scan the QR code with your authenticator app and enter the 6-digit code",
                         "email": email
                     }, status=status.HTTP_200_OK)
-
-        return Response({"error": "Invalid email or password"}, status=status.HTTP_400_BAD_REQUEST)
+            else:
+                return Response({"error": "Invalid email or password"}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class TOTPVerifyView(APIView):
     permission_classes = [AllowAny]

@@ -1,10 +1,37 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
+from django.conf import settings
+import requests
 from .models import UserTOTP
 
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True)
+    hcaptcha_response = serializers.CharField(write_only=True)
+
+    def validate_hcaptcha_response(self, value):
+        """Validate hCaptcha response"""
+        if not value:
+            raise serializers.ValidationError("hCaptcha response is required")
+        
+        # Make request to hCaptcha API
+        data = {
+            'secret': settings.HCAPTCHA_SECRET_KEY,
+            'response': value,
+            'remoteip': self.context.get('request').META.get('REMOTE_ADDR', '')
+        }
+        
+        try:
+            response = requests.post('https://hcaptcha.com/siteverify', data=data, timeout=10)
+            result = response.json()
+            
+            if not result.get('success', False):
+                raise serializers.ValidationError("Invalid hCaptcha. Please try again.")
+                
+        except requests.RequestException:
+            raise serializers.ValidationError("hCaptcha verification failed. Please try again.")
+        
+        return value
 
 class TOTPVerifySerializer(serializers.Serializer):
     email = serializers.EmailField()
