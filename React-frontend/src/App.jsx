@@ -11,6 +11,7 @@ import Login from "./Pages/Login/Login";
 import ThreatModel from "./Pages/ThreatModel/ThreatModel";
 import LLMVulnerabilityScannerDetails from "./Pages/LLMVulnerabilityScannerDetails/LLMVulnerabilityScannerDetails";
 import DLLScannerPage from "./Pages/DLLScanner/DLLScannerPage";
+import APIPentestPage from "./Pages/APIPenTest/APIPenTestPage";
 
 // Create a dark theme
 const darkTheme = createTheme({
@@ -85,24 +86,29 @@ function App() {
             // </UserAuth>
           } />
           <Route path="/llm-vulnerability-scanner-report" element={
-            <UserAuth>
-              <LLMVulnerabilityScannerReport />
-            </UserAuth>
+            <LLMVulnerabilityScannerReport />
+            // <UserAuth>
+            // </UserAuth>
           } />
           <Route path="/threat-model" element={
-            <UserAuth>
-              <ThreatModel />
-            </UserAuth>
+            <ThreatModel />
+            // <UserAuth>
+            // </UserAuth>
           } />
           <Route path="/llm-vulnerability-report-details" element={
-            <UserAuth>
-              <LLMVulnerabilityScannerDetails />
-            </UserAuth>
+            <LLMVulnerabilityScannerDetails />
+            // <UserAuth>
+            // </UserAuth>
           } />
           <Route path="/dll" element={
             // <UserAuth>
             // </UserAuth>
             <DLLScannerPage />
+          } />
+          <Route path="/api-pen-test" element={
+            // <UserAuth>
+            // </UserAuth>
+            <APIPentestPage />
           } />
         </Routes>
       </Router>
