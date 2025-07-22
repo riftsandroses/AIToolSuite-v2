@@ -1,68 +1,43 @@
+# Ignore OS-specific files
 .DS_Store
-AIToolSuite/
 
-# Python/Django specific
+# Ignore .env files and variants in all directories (recursive)
+**/.env
+**/.env.*
+!.env.example
+
+# Project folders
+AIToolSuite/
+artifacts/
+encryption_keys/
+yaml/
+/media/csv/**
+
+# Python/Django
 __pycache__/
 *.py[cod]
 *.pyc
-*.DS_Store
 *.log
 *.pot
+*.mo
+*.so
 db.sqlite3
 scanner_logs.log
 
-# Django migrations (except __init__.py)
-**/migrations/
-!*/migrations/__init__.py
-
-# Virtual environment
+# Virtual environments
 venv/
 env/
-AIToolSuite/
 
-# Node.js
-/node_modules
-/.pnp
-.pnp.js
+# Django migrations (ignore all but keep __init__.py)
+**/migrations/
+!**/migrations/__init__.py
 
-# Testing
-/coverage
-.tox/
-.coverage
-.cache
-nosetests.xml
-coverage.xml
+# Celery files
+*.bak
+*.dat
+*.dir
 
-# Production
-/build
-/dist
-*.egg-info/
-.installed.cfg
-*.egg
-
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Environment files
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-
-# Logs
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# IDE/Editor
-.project
-.pydevproject
-.ropeproject
-.mr.developer.cfg
-
-# Sphinx documentation
+# Sphinx
 docs/_build/
 
 # C extensions
@@ -78,17 +53,38 @@ lib64/
 parts/
 sdist/
 var/
+*.egg-info/
+.installed.cfg
+*.egg
 
-# Translations
-*.mo
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
 
-# Celery files
-*.bak
-*.dat 
-*.dir
+# Node.js
+node_modules/
+.pnp/
+.pnp.js
 
-# Custom folders/files
-artifacts/
-encryption_keys/
-yaml/
-/media/csv/**
+# Test and coverage
+coverage/
+.tox/
+.coverage
+.cache
+nosetests.xml
+coverage.xml
+
+# Build output
+build/
+dist/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# IDE/editor config files
+.project
+.pydevproject
+.ropeproject
+.mr.developer.cfg

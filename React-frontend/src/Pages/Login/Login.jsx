@@ -1,12 +1,14 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useDispatch } from 'react-redux';
 import { setAuthCookies, signInUser } from '../../api/auth';
 import { loggedInUserSlice } from '../../Store/Slices';
 import Input from "../../Components/Input/Input";
 import Snackbar from '../../Components/Snackbar/Snackbar';
 import { styled } from '@mui/system';
+import HCaptcha from '@hcaptcha/react-hcaptcha';
 
-// Styled components
+const siteKey = process.env.REACT_APP_HCAPTCHA_SITE_KEY;
+
 const LoginContainer = styled('div')`
   display: flex;
   align-items: center;
@@ -48,6 +50,12 @@ const Form = styled('form')`
 
 const InputContainer = styled('div')`
   width: 100%;
+`;
+
+const CaptchaContainer = styled('div')`
+  display: flex;
+  justify-content: center;
+  margin: 1rem 0;
 `;
 
 const ErrorMessage = styled('p')`
@@ -231,6 +239,7 @@ const TOTPInput = styled('input')`
 
 const Login = () => {
     const dispatch = useDispatch();
+    const captchaRef = useRef(null);
     const [step, setStep] = useState('login'); // 'login', 'setup', 'verify'
     const [userCreds, setUserCreds] = useState({
         email: "",
@@ -241,12 +250,33 @@ const Login = () => {
     const [errorMsg, setErrorMsg] = useState("");
     const [isLoading, setIsLoading] = useState(false);
     const [totpEnabled, setTotpEnabled] = useState(false);
+    const [hcaptchaToken, setHcaptchaToken] = useState("");
 
     const [openSnackbar, setOpenSnackbar] = useState(false);
     const [snackbarDetails, setSnackbarDetails] = useState({
         type: "",
         message: ""
     });
+
+    // hCaptcha handlers
+    const onCaptchaVerify = (token) => {
+        setHcaptchaToken(token);
+        if (errorMsg) setErrorMsg("");
+    };
+
+    const onCaptchaExpire = () => {
+        setHcaptchaToken("");
+    };
+
+    const onCaptchaError = (err) => {
+        console.error('hCaptcha Error:', err);
+        setHcaptchaToken("");
+        setSnackbarDetails({
+            type: "error",
+            message: "Captcha verification failed. Please try again."
+        });
+        setOpenSnackbar(true);
+    };
 
     const handleLogin = async (e) => {
         e?.preventDefault();
@@ -260,6 +290,15 @@ const Login = () => {
             return;
         }
 
+        if (!hcaptchaToken) {
+            setSnackbarDetails({
+                type: "error",
+                message: "Please complete the captcha verification"
+            });
+            setOpenSnackbar(true);
+            return;
+        }
+
         setIsLoading(true);
         setErrorMsg("");
 
@@ -267,6 +306,7 @@ const Login = () => {
             const response = await signInUser({
                 email: userCreds.email,
                 password: userCreds.password,
+                hcaptcha_response: hcaptchaToken,
             });
 
             if (response.requires_totp) {
@@ -284,6 +324,11 @@ const Login = () => {
             }
         } catch (error) {
             setErrorMsg(error.response?.data?.error || "Login failed. Please try again.");
+            // Reset captcha on login failure
+            if (captchaRef.current) {
+                captchaRef.current.resetCaptcha();
+            }
+            setHcaptchaToken("");
         } finally {
             setIsLoading(false);
         }
@@ -419,6 +464,11 @@ const Login = () => {
         setTotpToken("");
         setQrCode("");
         setErrorMsg("");
+        // Reset captcha when going back to login
+        if (captchaRef.current) {
+            captchaRef.current.resetCaptcha();
+        }
+        setHcaptchaToken("");
     };
 
     const handleNextAfterQR = () => {
@@ -446,12 +496,24 @@ const Login = () => {
                         value={userCreds.password}
                         handleChange={handleChange}
                     />
-                    {errorMsg && <ErrorMessage>{errorMsg}</ErrorMessage>}
                 </InputContainer>
+
+                <CaptchaContainer>
+                    <HCaptcha
+                        sitekey={siteKey}
+                        onVerify={onCaptchaVerify}
+                        onExpire={onCaptchaExpire}
+                        onError={onCaptchaError}
+                        ref={captchaRef}
+                        theme="dark"
+                    />
+                </CaptchaContainer>
+
+                {errorMsg && <ErrorMessage>{errorMsg}</ErrorMessage>}
 
                 <LoginButton
                     type="submit"
-                    disabled={isLoading}
+                    disabled={isLoading || !hcaptchaToken}
                 >
                     {isLoading ? "Signing in..." : "Sign in"}
                 </LoginButton>
@@ -503,6 +565,12 @@ const Login = () => {
                         type="text"
                         value={totpToken}
                         onChange={handleTOTPChange}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter' && totpToken.length === 6 && !isLoading) {
+                                e.preventDefault();
+                                (totpEnabled ? handleTOTPVerify : handleTOTPSetup)(e);
+                            }
+                        }}
                         placeholder="000000"
                         maxLength="6"
                     />

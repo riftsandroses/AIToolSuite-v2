@@ -2,8 +2,7 @@
 import json
 import re
 from rest_framework import serializers
-from .models import Scan, PostmanAPI
-
+from .models import Scan, PostmanAPI, TestCaseSelection
 
 class PostmanAPISerializer(serializers.ModelSerializer):
     class Meta:
@@ -270,3 +269,134 @@ class ScanUpdateSerializer(ScanSerializer):
             instance = super().update(instance, validated_data)
         
         return instance
+
+class TestCaseSelectionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TestCaseSelection
+        fields = ['id', 'api_category', 'test_case', 'name', 'description', 'is_active']
+
+
+class ScanTestCaseSelectionSerializer(serializers.Serializer):
+    """Serializer for updating test case selections for a scan"""
+    
+    VALID_API_CATEGORIES = [
+        'API1:2023', 'API2:2023', 'API3:2023', 'API4:2023', 'API5:2023',
+        'API6:2023', 'API7:2023', 'API8:2023', 'API9:2023'
+    ]
+    
+    VALID_TEST_CASES = [
+        'TC-1: Unlisted Endpoints',
+        'TC-2: Access Staging/Dev Environments', 
+        'TC-3: API Documentation Exposure',
+        'TC-4: Verb Tunneling',
+        'TC-5: Version Enumeration of APIs',
+        'TC-6: Monitoring/Health Endpoints',
+        'TC-7: Admin APIs'
+    ]
+    
+    selected_categories = serializers.ListField(
+        child=serializers.CharField(max_length=50),
+        required=False,
+        allow_empty=True,
+        help_text="List of API categories to select (e.g., ['API1:2023', 'API2:2023'])"
+    )
+    
+    category_test_cases = serializers.DictField(
+        child=serializers.ListField(
+            child=serializers.CharField(max_length=100)
+        ),
+        required=False,
+        allow_empty=True,
+        help_text="Dictionary mapping API categories to their selected test cases"
+    )
+    
+    def validate_selected_categories(self, value):
+        """Validate that all selected categories are valid"""
+        if not value:
+            return value
+            
+        invalid_categories = [cat for cat in value if cat not in self.VALID_API_CATEGORIES]
+        if invalid_categories:
+            raise serializers.ValidationError(
+                f"Invalid API categories: {invalid_categories}. "
+                f"Valid categories are: {self.VALID_API_CATEGORIES}"
+            )
+        return value
+    
+    def validate_category_test_cases(self, value):
+        """Validate that all test cases are valid for their categories"""
+        if not value:
+            return value
+            
+        for category, test_cases in value.items():
+            if category not in self.VALID_API_CATEGORIES:
+                raise serializers.ValidationError(
+                    f"Invalid API category: {category}. "
+                    f"Valid categories are: {self.VALID_API_CATEGORIES}"
+                )
+            
+            invalid_test_cases = [tc for tc in test_cases if tc not in self.VALID_TEST_CASES]
+            if invalid_test_cases:
+                raise serializers.ValidationError(
+                    f"Invalid test cases for {category}: {invalid_test_cases}. "
+                    f"Valid test cases are: {self.VALID_TEST_CASES}"
+                )
+        
+        return value
+    
+    def validate(self, attrs):
+        """Cross-field validation"""
+        selected_categories = attrs.get('selected_categories', [])
+        category_test_cases = attrs.get('category_test_cases', {})
+        
+        # If category_test_cases is provided, ensure all keys are in selected_categories
+        if category_test_cases:
+            for category in category_test_cases.keys():
+                if category not in selected_categories:
+                    raise serializers.ValidationError(
+                        f"Category '{category}' in category_test_cases must also be in selected_categories"
+                    )
+        
+        return attrs
+
+
+class ScanTestCaseUpdateSerializer(serializers.ModelSerializer):
+    """Serializer for updating scan with test case selections"""
+    
+    class Meta:
+        model = Scan
+        fields = ['id', 'scan_name', 'test_case_selections', 'updated_at']
+        read_only_fields = ['id', 'scan_name', 'updated_at']
+    
+    def validate_test_case_selections(self, value):
+        """Validate the test case selections JSON structure"""
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("test_case_selections must be a dictionary")
+        
+        valid_categories = [
+            'API1:2023', 'API2:2023', 'API3:2023', 'API4:2023', 'API5:2023',
+            'API6:2023', 'API7:2023', 'API8:2023', 'API9:2023'
+        ]
+        
+        valid_test_cases = [
+            'TC-1: Unlisted Endpoints',
+            'TC-2: Access Staging/Dev Environments', 
+            'TC-3: API Documentation Exposure',
+            'TC-4: Verb Tunneling',
+            'TC-5: Version Enumeration of APIs',
+            'TC-6: Monitoring/Health Endpoints',
+            'TC-7: Admin APIs'
+        ]
+        
+        for category, test_cases in value.items():
+            if category not in valid_categories:
+                raise serializers.ValidationError(f"Invalid API category: {category}")
+            
+            if not isinstance(test_cases, list):
+                raise serializers.ValidationError(f"Test cases for {category} must be a list")
+            
+            for test_case in test_cases:
+                if test_case not in valid_test_cases:
+                    raise serializers.ValidationError(f"Invalid test case: {test_case}")
+        
+        return value

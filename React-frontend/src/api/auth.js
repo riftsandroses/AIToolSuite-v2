@@ -5,7 +5,7 @@ export const getAuthCookies = () => {
   const name = Cookie.get("name");
   const username = Cookie.get("username");
   const email = Cookie.get("email");
-//   const role = Cookie.get("role");
+  //   const role = Cookie.get("role");
   const accessToken = Cookie.get("accessToken");
   const refreshToken = Cookie.get("refreshToken");
 
@@ -20,37 +20,38 @@ export const getAuthCookies = () => {
 };
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL;
 
-export const signInUser = async ({ email, password }) => {
-//   try {
-    const res = await axios.post(
-      `${API_BASE_URL}/api/v1/login/`,
-      {
-        email: email,
-        password: password,
+export const signInUser = async ({ email, password, hcaptcha_response }) => {
+  //   try {
+  const res = await axios.post(
+    `${API_BASE_URL}/api/v1/login/`,
+    {
+      email: email,
+      password: password,
+      hcaptcha_response: hcaptcha_response
+    },
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
       },
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-      }
-    );
-    // console.log(res.data)
-    return res.data;
+    }
+  );
+  // console.log(res.data)
+  return res.data;
 
-//   } catch (error) {
-//     console.error(error.response.data.error)
-//     return Error(error.response.data.error)
-//     // throw new Error(error.error)
-//     // console.log(error.response.data);
-//   }
+  //   } catch (error) {
+  //     console.error(error.response.data.error)
+  //     return Error(error.response.data.error)
+  //     // throw new Error(error.error)
+  //     // console.log(error.response.data);
+  //   }
 };
 
 export const setAuthCookies = ({
   name,
   username,
   email,
-//   role,
+  //   role,
   refreshToken,
   accessToken,
   expiry,
@@ -67,9 +68,9 @@ export const setAuthCookies = ({
     Cookie.set("email", `${email}`, expiry);
   }
 
-//   if (role) {
-//     Cookie.set("role", `${role}`, expiry);
-//   }
+  //   if (role) {
+  //     Cookie.set("role", `${role}`, expiry);
+  //   }
 
   if (refreshToken) {
     Cookie.set("refreshToken", `${refreshToken}`, expiry);
@@ -84,7 +85,7 @@ export const deleteAuthCookies = () => {
   Cookie.erase("name");
   Cookie.erase("username");
   Cookie.erase("email");
-//   Cookie.erase("role");
+  //   Cookie.erase("role");
   Cookie.erase("refreshToken");
   Cookie.erase("accessToken");
 };

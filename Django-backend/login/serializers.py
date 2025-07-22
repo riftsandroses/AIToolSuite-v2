@@ -7,6 +7,7 @@ from .models import UserTOTP
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True)
+
     hcaptcha_response = serializers.CharField(write_only=True)
 
     def validate_hcaptcha_response(self, value):
@@ -18,13 +19,12 @@ class LoginSerializer(serializers.Serializer):
         data = {
             'secret': settings.HCAPTCHA_SECRET_KEY,
             'response': value,
-            'remoteip': self.context.get('request').META.get('REMOTE_ADDR', '')
         }
         
         try:
             response = requests.post('https://hcaptcha.com/siteverify', data=data, timeout=10)
             result = response.json()
-            
+
             if not result.get('success', False):
                 raise serializers.ValidationError("Invalid hCaptcha. Please try again.")
                 

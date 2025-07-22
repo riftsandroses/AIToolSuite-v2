@@ -11,6 +11,9 @@ from .views import (
     PostmanAPIUpdateView,
     PostmanAPIDeleteView,
     PostmanAPICreateView,
+    ScanTestCaseSelectionView,
+    AvailableTestCasesView,
+    BulkTestCaseSelectionView,
 )
 
 app_name = 'api_orch'
@@ -23,6 +26,11 @@ urlpatterns = [
     path('scans/<int:pk>/update/', ScanUpdateView.as_view(), name='scan-update'),
     path('scans/<int:pk>/delete/', ScanDeleteView.as_view(), name='scan-delete'),
     
+     # Test Case Selection URLs
+    path('scans/<int:scan_id>/test-cases/', ScanTestCaseSelectionView.as_view(), name='scan-test-cases'),
+    path('scans/bulk-test-cases/', BulkTestCaseSelectionView.as_view(), name='bulk-test-cases'),
+    path('test-cases/available/', AvailableTestCasesView.as_view(), name='available-test-cases'),
+
     # PostmanAPI URLs
     path('scans/<int:scan_id>/apis/', PostmanAPIListView.as_view(), name='postman-api-list'),
     path('scans/<int:scan_id>/apis/create/', PostmanAPICreateView.as_view(), name='postman-api-create'),

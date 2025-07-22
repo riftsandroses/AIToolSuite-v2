@@ -13,6 +13,8 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 from pathlib import Path
 from datetime import timedelta
 import os
+from dotenv import load_dotenv
+load_dotenv()
 # from corsheaders.defaults import default_headers
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -76,6 +78,7 @@ CORS_ALLOWED_ORIGINS = [
     'http://127.0.0.1:3000', 
     'http://dev.aitoolsuite.xyz',
     'https://dev.aitoolsuite.xyz',
+    'http://192.168.10.19.sslip.io:3000',
 ]
 
 CORS_ALLOW_HEADERS = [
