@@ -12,6 +12,8 @@ import ThreatModel from "./Pages/ThreatModel/ThreatModel";
 import LLMVulnerabilityScannerDetails from "./Pages/LLMVulnerabilityScannerDetails/LLMVulnerabilityScannerDetails";
 import DLLScannerPage from "./Pages/DLLScanner/DLLScannerPage";
 import APIPentestPage from "./Pages/APIPenTest/APIPenTestPage";
+import AllPentestScansPage from "./Pages/APIPenTest/AllPentestScansPage";
+import ScanDetailsPage from "./Pages/APIPenTest/ScanDetailsPage";
 
 // Create a dark theme
 const darkTheme = createTheme({
@@ -81,35 +83,37 @@ function App() {
             </UserAuth>
           } />
           <Route path="/llm-vulnerability-scanner" element={
-            <LLMVulnerabilityScanner />
-            // <UserAuth>
-            // </UserAuth>
+            <UserAuth>
+              <LLMVulnerabilityScanner />
+            </UserAuth>
           } />
           <Route path="/llm-vulnerability-scanner-report" element={
-            <LLMVulnerabilityScannerReport />
-            // <UserAuth>
-            // </UserAuth>
+            <UserAuth>
+              <LLMVulnerabilityScannerReport />
+            </UserAuth>
           } />
           <Route path="/threat-model" element={
-            <ThreatModel />
-            // <UserAuth>
-            // </UserAuth>
+            <UserAuth>
+              <ThreatModel />
+            </UserAuth>
           } />
           <Route path="/llm-vulnerability-report-details" element={
-            <LLMVulnerabilityScannerDetails />
-            // <UserAuth>
-            // </UserAuth>
+            <UserAuth>
+              <LLMVulnerabilityScannerDetails />
+            </UserAuth>
           } />
           <Route path="/dll" element={
-            // <UserAuth>
-            // </UserAuth>
-            <DLLScannerPage />
+            <UserAuth>
+              <DLLScannerPage />
+            </UserAuth>
           } />
-          <Route path="/api-pen-test" element={
-            // <UserAuth>
-            // </UserAuth>
-            <APIPentestPage />
+          <Route path="/api-pentest" element={
+            <UserAuth>
+              <APIPentestPage />
+            </UserAuth>
           } />
+          <Route path="/api-pentest/all" element={<UserAuth><AllPentestScansPage /></UserAuth>} />
+          <Route path="/api-pentest/:id" element={<UserAuth><ScanDetailsPage /></UserAuth>} />
         </Routes>
       </Router>
     </ThemeProvider>
