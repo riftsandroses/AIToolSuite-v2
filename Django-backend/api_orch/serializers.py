@@ -1,6 +1,7 @@
 # api_orch/serializers.py
 import json
 import re
+from .utils.test_case_utils import TestCaseDefinitions
 from rest_framework import serializers
 from .models import Scan, PostmanAPI, TestCaseSelection
 
@@ -9,7 +10,8 @@ class PostmanAPISerializer(serializers.ModelSerializer):
         model = PostmanAPI
         fields = ['id', 'name', 'method', 'url', 'headers', 'body', 
                  'authorization', 'query_params', 'folder_path', 
-                 'pre_request_script', 'test_script',
+                 'pre_request_script', 'test_script', 'original_url',
+                 'original_headers', 'original_body', 'original_query_params',
                  'created_at', 'updated_at']
         read_only_fields = ['id', 'created_at', 'updated_at']
 
@@ -21,13 +23,22 @@ class ScanSerializer(serializers.ModelSerializer):
         model = Scan
         fields = ['id', 'scan_name', 'description', 'client_name', 
                  'client_app_name', 'username', 'password', 
-                 'postman_collection_file', 'postman_apis', 
+                 'postman_collection_file', 'postman_environment_file',
+                 'environment_variables', 'postman_apis', 
                  'created_at', 'updated_at']
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'environment_variables', 'created_at', 'updated_at']
 
     def create(self, validated_data):
         validated_data['created_by'] = self.context['request'].user
         scan = super().create(validated_data)
+        
+        # Parse environment file first if provided
+        if scan.postman_environment_file:
+            try:
+                self._parse_environment_file(scan)
+            except Exception as e:
+                print(f"Error parsing Postman environment file: {str(e)}")
+                # Continue even if environment parsing fails
         
         # Parse Postman collection file after the scan is saved
         if scan.postman_collection_file:
@@ -39,6 +50,63 @@ class ScanSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(f"Error parsing Postman collection: {str(e)}")
         
         return scan
+    
+    def _parse_environment_file(self, scan):
+        """Parse Postman environment file and extract variables"""
+        try:
+            with scan.postman_environment_file.open('r') as file:
+                environment_data = json.load(file)
+            
+            environment_variables = {}
+            
+            # Extract values from environment file
+            values = environment_data.get('values', [])
+            for item in values:
+                if item.get('enabled', True):  # Only include enabled variables
+                    key = item.get('key', '')
+                    value = item.get('value', '')
+                    if key:  # Only add if key is not empty
+                        environment_variables[key] = value
+            
+            # Save environment variables to scan
+            scan.environment_variables = environment_variables
+            scan.save()
+            
+            print(f"Parsed {len(environment_variables)} environment variables")
+            
+        except json.JSONDecodeError as e:
+            raise serializers.ValidationError(f"Invalid JSON in Postman environment file: {str(e)}")
+        except Exception as e:
+            raise serializers.ValidationError(f"Error reading Postman environment file: {str(e)}")
+    
+    def _replace_environment_variables(self, text, environment_variables):
+        """Replace {{variable}} placeholders with environment variable values"""
+        if not isinstance(text, str) or not environment_variables:
+            return text
+        
+        # Pattern to match {{variable_name}}
+        pattern = r'\{\{([^}]+)\}\}'
+        
+        def replace_match(match):
+            var_name = match.group(1).strip()
+            return environment_variables.get(var_name, match.group(0))  # Return original if not found
+        
+        return re.sub(pattern, replace_match, text)
+    
+    def _replace_variables_in_dict(self, data, environment_variables):
+        """Recursively replace environment variables in dictionary/list structures"""
+        if isinstance(data, dict):
+            result = {}
+            for key, value in data.items():
+                new_key = self._replace_environment_variables(key, environment_variables)
+                result[new_key] = self._replace_variables_in_dict(value, environment_variables)
+            return result
+        elif isinstance(data, list):
+            return [self._replace_variables_in_dict(item, environment_variables) for item in data]
+        elif isinstance(data, str):
+            return self._replace_environment_variables(data, environment_variables)
+        else:
+            return data
     
     def _parse_postman_collection(self, scan):
         """Parse Postman collection file and create PostmanAPI objects"""
@@ -205,6 +273,20 @@ class ScanSerializer(serializers.ModelSerializer):
             # Extract scripts
             pre_request_script, test_script = self._extract_scripts(item)
             
+            # Store original values before environment variable replacement
+            original_url = url_raw
+            original_headers = headers.copy()
+            original_body = body.copy()
+            original_query_params = query_params.copy()
+            
+            # Replace environment variables if available
+            environment_variables = scan.environment_variables
+            if environment_variables:
+                url_raw = self._replace_environment_variables(url_raw, environment_variables)
+                headers = self._replace_variables_in_dict(headers, environment_variables)
+                body = self._replace_variables_in_dict(body, environment_variables)
+                query_params = self._replace_variables_in_dict(query_params, environment_variables)
+            
             # Create the PostmanAPI object
             postman_api = PostmanAPI.objects.create(
                 scan=scan,
@@ -217,7 +299,11 @@ class ScanSerializer(serializers.ModelSerializer):
                 query_params=query_params,
                 folder_path=folder_path,
                 pre_request_script=pre_request_script,
-                test_script=test_script
+                test_script=test_script,
+                original_url=original_url,
+                original_headers=original_headers,
+                original_body=original_body,
+                original_query_params=original_query_params
             )
             
             print(f"Created API: {postman_api.method} {postman_api.name}")
@@ -230,15 +316,20 @@ class ScanSerializer(serializers.ModelSerializer):
 
 class ScanListSerializer(serializers.ModelSerializer):
     postman_apis_count = serializers.SerializerMethodField()
+    environment_variables_count = serializers.SerializerMethodField()
     
     class Meta:
         model = Scan
         fields = ['id', 'scan_name', 'description', 'client_name', 
-                 'client_app_name', 'postman_apis_count', 'created_at', 'updated_at']
+                 'client_app_name', 'postman_apis_count', 'environment_variables_count',
+                 'created_at', 'updated_at']
         read_only_fields = ['id', 'created_at', 'updated_at']
     
     def get_postman_apis_count(self, obj):
         return obj.postman_apis.count()
+    
+    def get_environment_variables_count(self, obj):
+        return len(obj.environment_variables) if obj.environment_variables else 0
 
 
 class ScanUpdateSerializer(ScanSerializer):
@@ -246,17 +337,32 @@ class ScanUpdateSerializer(ScanSerializer):
         model = Scan
         fields = ['id', 'scan_name', 'description', 'client_name', 
                  'client_app_name', 'username', 'password', 
-                 'postman_collection_file', 'created_at', 'updated_at']
-        read_only_fields = ['id', 'created_at', 'updated_at']
+                 'postman_collection_file', 'postman_environment_file',
+                 'environment_variables', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'environment_variables', 'created_at', 'updated_at']
     
     def update(self, instance, validated_data):
-        # If new postman collection file is uploaded, reparse it
-        if 'postman_collection_file' in validated_data:
+        # Check if environment file is being updated
+        environment_file_updated = 'postman_environment_file' in validated_data
+        collection_file_updated = 'postman_collection_file' in validated_data
+        
+        # If environment file is updated, parse it first
+        if environment_file_updated:
+            instance = super().update(instance, validated_data)
+            if instance.postman_environment_file:
+                try:
+                    self._parse_environment_file(instance)
+                except Exception as e:
+                    print(f"Error parsing updated environment file: {str(e)}")
+                    # Continue even if environment parsing fails
+        
+        # If collection file is updated, reparse it
+        if collection_file_updated:
+            if not environment_file_updated:
+                instance = super().update(instance, validated_data)
+            
             # Delete existing PostmanAPI objects
             instance.postman_apis.all().delete()
-            
-            # Update the instance
-            instance = super().update(instance, validated_data)
             
             # Parse new collection file
             if instance.postman_collection_file:
@@ -265,103 +371,83 @@ class ScanUpdateSerializer(ScanSerializer):
                 except Exception as e:
                     print(f"Error parsing updated Postman collection: {str(e)}")
                     raise serializers.ValidationError(f"Error parsing Postman collection: {str(e)}")
-        else:
+        
+        # If only environment file was updated, update existing APIs with new variables
+        elif environment_file_updated and not collection_file_updated:
+            self._update_existing_apis_with_environment(instance)
+        
+        if not environment_file_updated and not collection_file_updated:
             instance = super().update(instance, validated_data)
         
         return instance
+    
+    def _update_existing_apis_with_environment(self, scan):
+        """Update existing APIs with new environment variables"""
+        environment_variables = scan.environment_variables
+        
+        for api in scan.postman_apis.all():
+            # Use original values and apply new environment variables
+            if environment_variables:
+                api.url = self._replace_environment_variables(api.original_url, environment_variables)
+                api.headers = self._replace_variables_in_dict(api.original_headers, environment_variables)
+                api.body = self._replace_variables_in_dict(api.original_body, environment_variables)
+                api.query_params = self._replace_variables_in_dict(api.original_query_params, environment_variables)
+            else:
+                # If no environment variables, revert to original values
+                api.url = api.original_url
+                api.headers = api.original_headers
+                api.body = api.original_body
+                api.query_params = api.original_query_params
+            
+            api.save()
+
 
 class TestCaseSelectionSerializer(serializers.ModelSerializer):
     class Meta:
         model = TestCaseSelection
         fields = ['id', 'api_category', 'test_case', 'name', 'description', 'is_active']
 
-
 class ScanTestCaseSelectionSerializer(serializers.Serializer):
-    """Serializer for updating test case selections for a scan"""
-    
-    VALID_API_CATEGORIES = [
-        'API1:2023', 'API2:2023', 'API3:2023', 'API4:2023', 'API5:2023',
-        'API6:2023', 'API7:2023', 'API8:2023', 'API9:2023'
-    ]
-    
-    VALID_TEST_CASES = [
-        'TC-1: Unlisted Endpoints',
-        'TC-2: Access Staging/Dev Environments', 
-        'TC-3: API Documentation Exposure',
-        'TC-4: Verb Tunneling',
-        'TC-5: Version Enumeration of APIs',
-        'TC-6: Monitoring/Health Endpoints',
-        'TC-7: Admin APIs'
-    ]
-    
     selected_categories = serializers.ListField(
-        child=serializers.CharField(max_length=50),
-        required=False,
-        allow_empty=True,
-        help_text="List of API categories to select (e.g., ['API1:2023', 'API2:2023'])"
+        child=serializers.CharField(max_length=50), required=False, allow_empty=True
     )
-    
     category_test_cases = serializers.DictField(
-        child=serializers.ListField(
-            child=serializers.CharField(max_length=100)
-        ),
-        required=False,
-        allow_empty=True,
-        help_text="Dictionary mapping API categories to their selected test cases"
+        child=serializers.ListField(child=serializers.CharField(max_length=100)),
+        required=False, allow_empty=True
     )
-    
-    def validate_selected_categories(self, value):
-        """Validate that all selected categories are valid"""
-        if not value:
-            return value
-            
-        invalid_categories = [cat for cat in value if cat not in self.VALID_API_CATEGORIES]
-        if invalid_categories:
-            raise serializers.ValidationError(
-                f"Invalid API categories: {invalid_categories}. "
-                f"Valid categories are: {self.VALID_API_CATEGORIES}"
-            )
-        return value
-    
-    def validate_category_test_cases(self, value):
-        """Validate that all test cases are valid for their categories"""
-        if not value:
-            return value
-            
-        for category, test_cases in value.items():
-            if category not in self.VALID_API_CATEGORIES:
-                raise serializers.ValidationError(
-                    f"Invalid API category: {category}. "
-                    f"Valid categories are: {self.VALID_API_CATEGORIES}"
-                )
-            
-            invalid_test_cases = [tc for tc in test_cases if tc not in self.VALID_TEST_CASES]
-            if invalid_test_cases:
-                raise serializers.ValidationError(
-                    f"Invalid test cases for {category}: {invalid_test_cases}. "
-                    f"Valid test cases are: {self.VALID_TEST_CASES}"
-                )
-        
-        return value
-    
-    def validate(self, attrs):
-        """Cross-field validation"""
-        selected_categories = attrs.get('selected_categories', [])
-        category_test_cases = attrs.get('category_test_cases', {})
-        
-        # If category_test_cases is provided, ensure all keys are in selected_categories
-        if category_test_cases:
-            for category in category_test_cases.keys():
-                if category not in selected_categories:
-                    raise serializers.ValidationError(
-                        f"Category '{category}' in category_test_cases must also be in selected_categories"
-                    )
-        
-        return attrs
 
+    def validate_selected_categories(self, value):
+        invalid = [cat for cat in value if not TestCaseDefinitions.validate_category(cat)]
+        if invalid:
+            raise serializers.ValidationError(f"Invalid categories: {invalid}")
+        return value
+
+    def validate_category_test_cases(self, value):
+        for category, cases in value.items():
+            if not TestCaseDefinitions.validate_category(category):
+                raise serializers.ValidationError(f"Invalid category: {category}")
+            for test_case in cases:
+                if not TestCaseDefinitions.validate_test_case_for_category(category, test_case):
+                    raise serializers.ValidationError(
+                        f"Invalid test case '{test_case}' for category '{category}'"
+                    )
+        return value
+
+    def validate(self, attrs):
+        selected_categories = attrs.get("selected_categories", [])
+        category_test_cases = attrs.get("category_test_cases", {})
+        for cat in category_test_cases:
+            if cat not in selected_categories:
+                raise serializers.ValidationError(
+                    f"Category '{cat}' in category_test_cases must also be in selected_categories"
+                )
+        return attrs
 
 class ScanTestCaseUpdateSerializer(serializers.ModelSerializer):
     """Serializer for updating scan with test case selections"""
+    
+    def get_valid_test_cases_for_category(self, category):
+        return TestCaseDefinitions.get_valid_test_cases_for_category(category)
     
     class Meta:
         model = Scan
@@ -375,17 +461,7 @@ class ScanTestCaseUpdateSerializer(serializers.ModelSerializer):
         
         valid_categories = [
             'API1:2023', 'API2:2023', 'API3:2023', 'API4:2023', 'API5:2023',
-            'API6:2023', 'API7:2023', 'API8:2023', 'API9:2023'
-        ]
-        
-        valid_test_cases = [
-            'TC-1: Unlisted Endpoints',
-            'TC-2: Access Staging/Dev Environments', 
-            'TC-3: API Documentation Exposure',
-            'TC-4: Verb Tunneling',
-            'TC-5: Version Enumeration of APIs',
-            'TC-6: Monitoring/Health Endpoints',
-            'TC-7: Admin APIs'
+            'API6:2023', 'API7:2023', 'API8:2023', 'API9:2023', 'Custom Testing'
         ]
         
         for category, test_cases in value.items():
@@ -395,8 +471,12 @@ class ScanTestCaseUpdateSerializer(serializers.ModelSerializer):
             if not isinstance(test_cases, list):
                 raise serializers.ValidationError(f"Test cases for {category} must be a list")
             
+            valid_test_cases_for_category = self.get_valid_test_cases_for_category(category)
             for test_case in test_cases:
-                if test_case not in valid_test_cases:
-                    raise serializers.ValidationError(f"Invalid test case: {test_case}")
+                if test_case not in valid_test_cases_for_category:
+                    raise serializers.ValidationError(
+                        f"Invalid test case '{test_case}' for category '{category}'. "
+                        f"Valid test cases for {category} are: {valid_test_cases_for_category}"
+                    )
         
         return value

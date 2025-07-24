@@ -14,6 +14,8 @@ from .views import (
     ScanTestCaseSelectionView,
     AvailableTestCasesView,
     BulkTestCaseSelectionView,
+    ScanEnvironmentView,
+    ScanEnvironmentVariablesView,
 )
 
 app_name = 'api_orch'
@@ -26,7 +28,11 @@ urlpatterns = [
     path('scans/<int:pk>/update/', ScanUpdateView.as_view(), name='scan-update'),
     path('scans/<int:pk>/delete/', ScanDeleteView.as_view(), name='scan-delete'),
     
-     # Test Case Selection URLs
+    # Environment URLs
+    path('scans/<int:scan_id>/environment/', ScanEnvironmentView.as_view(), name='scan-environment'),
+    path('scans/<int:scan_id>/environment/variables/', ScanEnvironmentVariablesView.as_view(), name='scan-environment-variables'),
+    
+    # Test Case Selection URLs
     path('scans/<int:scan_id>/test-cases/', ScanTestCaseSelectionView.as_view(), name='scan-test-cases'),
     path('scans/bulk-test-cases/', BulkTestCaseSelectionView.as_view(), name='bulk-test-cases'),
     path('test-cases/available/', AvailableTestCasesView.as_view(), name='available-test-cases'),
