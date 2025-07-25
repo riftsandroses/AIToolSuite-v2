@@ -88,3 +88,11 @@ yarn-error.log*
 .pydevproject
 .ropeproject
 .mr.developer.cfg
+
+# Ignore everything inside Django-backend/media/
+Django-backend/media/postman_collections/*
+Django-backend/media/postman_environments/*
+
+# But keep the directory itself
+!Django-backend/media/postman_collections/.gitkeep
+!Django-backend/media/postman_environments/.gitkeep

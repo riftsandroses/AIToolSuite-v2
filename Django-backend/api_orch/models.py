@@ -1,7 +1,7 @@
 # api_orch/models.py
 from django.db import models
 from django.contrib.auth.models import User
-
+from django.utils import timezone
 
 class Scan(models.Model):
     scan_name = models.CharField(max_length=255)
@@ -138,3 +138,24 @@ class TestCaseSelection(models.Model):
     
     def __str__(self):
         return f"{self.api_category} - {self.test_case}"
+    
+class ScanTokens(models.Model):
+    """Model to store authentication tokens for scans"""
+    scan = models.OneToOneField(Scan, on_delete=models.CASCADE, related_name='tokens')
+    access_token = models.TextField(blank=True, null=True)
+    refresh_token = models.TextField(blank=True, null=True)
+    token_expires_at = models.DateTimeField(blank=True, null=True)
+    last_login_attempt = models.DateTimeField(blank=True, null=True)
+    login_successful = models.BooleanField(default=False)
+    login_error_message = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    def __str__(self):
+        return f"Tokens for {self.scan.scan_name}"
+    
+    def is_token_expired(self):
+        """Check if the access token is expired or will expire soon (within 1 minute)"""
+        if not self.token_expires_at:
+            return True
+        return timezone.now() >= (self.token_expires_at - timezone.timedelta(minutes=1))

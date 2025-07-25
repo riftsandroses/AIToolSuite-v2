@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 from pathlib import Path
 from datetime import timedelta
 import os
+from celery.schedules import crontab
 from dotenv import load_dotenv
 load_dotenv()
 # from corsheaders.defaults import default_headers
@@ -252,3 +253,11 @@ USE_X_FORWARDED_HOST = True
 # hCaptcha Configuration
 HCAPTCHA_SITE_KEY = os.environ.get('HCAPTCHA_SITE_KEY')
 HCAPTCHA_SECRET_KEY = os.environ.get('HCAPTCHA_SECRET_KEY')
+
+CELERY_BEAT_SCHEDULE = {
+    'refresh-scan-tokens': {
+        'task': 'api_orch.tasks.refresh_scan_tokens',
+        'schedule': crontab(minute='*/10'),  # Run every 10 minutes
+    },
+}
+CELERYD_FORCE_EXECV = True

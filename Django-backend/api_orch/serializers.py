@@ -1,9 +1,10 @@
 # api_orch/serializers.py
 import json
 import re
+from django.utils import timezone
 from .utils.test_case_utils import TestCaseDefinitions
 from rest_framework import serializers
-from .models import Scan, PostmanAPI, TestCaseSelection
+from .models import Scan, PostmanAPI, TestCaseSelection, ScanTokens
 
 class PostmanAPISerializer(serializers.ModelSerializer):
     class Meta:
@@ -480,3 +481,32 @@ class ScanTestCaseUpdateSerializer(serializers.ModelSerializer):
                     )
         
         return value
+    
+class ScanTokensSerializer(serializers.ModelSerializer):
+    is_expired = serializers.SerializerMethodField()
+    expires_in_minutes = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = ScanTokens
+        fields = ['access_token', 'refresh_token', 'token_expires_at', 
+                 'last_login_attempt', 'login_successful', 'login_error_message',
+                 'is_expired', 'expires_in_minutes', 'created_at', 'updated_at']
+        read_only_fields = ['created_at', 'updated_at']
+    
+    def get_is_expired(self, obj):
+        return obj.is_token_expired()
+    
+    def get_expires_in_minutes(self, obj):
+        if obj.token_expires_at:
+            delta = obj.token_expires_at - timezone.now()
+            return max(0, int(delta.total_seconds() / 60))
+        return 0
+    
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        # Don't expose actual token values in API responses for security
+        if data.get('access_token'):
+            data['access_token'] = f"***{data['access_token'][-10:]}"  # Show only last 10 chars
+        if data.get('refresh_token'):
+            data['refresh_token'] = f"***{data['refresh_token'][-10:]}"  # Show only last 10 chars
+        return data

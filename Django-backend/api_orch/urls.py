@@ -16,6 +16,10 @@ from .views import (
     BulkTestCaseSelectionView,
     ScanEnvironmentView,
     ScanEnvironmentVariablesView,
+    ScanTokenManagementView,
+    ScanTokenRefreshView,
+    ManualTokenRefreshView,
+    AuthenticatedAPIRequestView,
 )
 
 app_name = 'api_orch'
@@ -43,4 +47,12 @@ urlpatterns = [
     path('scans/<int:scan_id>/apis/<int:pk>/', PostmanAPIDetailView.as_view(), name='postman-api-detail'),
     path('scans/<int:scan_id>/apis/<int:pk>/update/', PostmanAPIUpdateView.as_view(), name='postman-api-update'),
     path('scans/<int:scan_id>/apis/<int:pk>/delete/', PostmanAPIDeleteView.as_view(), name='postman-api-delete'),
+
+    # Token Management URLs
+    path('scans/<int:scan_id>/tokens/login/', ScanTokenManagementView.as_view(), name='scan-token-login'),
+    path('scans/<int:scan_id>/tokens/status/', ScanTokenManagementView.as_view(), name='scan-token-status'),
+    path('scans/<int:scan_id>/tokens/refresh/', ScanTokenRefreshView.as_view(), name='scan-token-refresh'),
+    path('scans/tokens/refresh-all/', ManualTokenRefreshView.as_view(), name='manual-token-refresh-all'),
+    path('scans/<int:scan_id>/tokens/refresh-manual/', ManualTokenRefreshView.as_view(), name='manual-token-refresh'),
+    path('scans/<int:scan_id>/request/', AuthenticatedAPIRequestView.as_view(), name='authenticated-api-request'),
 ]

@@ -87,7 +87,7 @@ class TestCaseDefinitions:
                 'TC-7': 'Admin APIs'
             },
             'Custom Testing': {
-                'TC-1': 'Custom Security Test Case 1',
+                'TC-1': 'SQL Injection Attacks',
                 'TC-2': 'Custom Security Test Case 2',
                 'TC-3': 'Custom Security Test Case 3',
                 'TC-4': 'Custom Security Test Case 4',
