@@ -5,7 +5,6 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import action
 from django.utils import timezone
 import logging
-
 from .models import UserContainer
 from .serializers import UserContainerSerializer
 from .docker_service import DockerService

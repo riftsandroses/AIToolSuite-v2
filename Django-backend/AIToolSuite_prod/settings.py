@@ -80,6 +80,7 @@ CORS_ALLOWED_ORIGINS = [
     'http://dev.aitoolsuite.xyz',
     'https://dev.aitoolsuite.xyz',
     'http://192.168.10.19.sslip.io:3000',
+    'http://172.20.10.2.sslip.io:3000',
 ]
 
 CORS_ALLOW_HEADERS = [
