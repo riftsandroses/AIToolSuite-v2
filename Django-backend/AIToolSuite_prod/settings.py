@@ -48,6 +48,7 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist',
     'django_celery_beat',
+    'django_celery_results',
     'corsheaders',
 
     'login',
@@ -57,7 +58,8 @@ INSTALLED_APPS = [
     'scanner_results',
     'risk_assessment',
     'connector',
-    'api_orch'
+    'api_orch',
+    'api_custom_testing'
 ]
 
 MIDDLEWARE = [
@@ -185,12 +187,12 @@ MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 # File upload settings
-FILE_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024  # 5MB
-DATA_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024  # 5MB
+FILE_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024  # 5MB
+DATA_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024  # 5MB
 
 
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),  # Adjust as needed
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),  # Update to 15 minutes in production
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
@@ -210,10 +212,6 @@ REST_FRAMEWORK = {
     ),
 }
 
-# Add to your requirements.txt or install manually
-# watchdog==3.0.0
-
-# Add to settings.py
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -237,12 +235,24 @@ LOGGING = {
             'level': 'INFO',
             'propagate': True,
         },
+
+        'api_custom_testing': {
+            'handlers': ['file'],
+            'level': 'INFO',
+            'propagate': True,
+        },
     },
 }
 
+# For Redis
+#CELERY_BROKER_URL = 'redis://localhost:6379/0'
+#CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
+
+# For RabbitMQ
+CELERY_BROKER_URL = 'amqp://guest:guest@localhost:5672//'
+CELERY_RESULT_BACKEND = 'django-db'
+
 # Celery settings
-CELERY_BROKER_URL = 'redis://localhost:6379/0'
-CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'

@@ -36,6 +36,7 @@ env/
 *.bak
 *.dat
 *.dir
+/Django-backend/celerybeat-schedule
 
 # Sphinx
 docs/_build/

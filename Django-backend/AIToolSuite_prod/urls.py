@@ -27,4 +27,5 @@ urlpatterns = [
     path('api/v1/risk-assessment/', include('risk_assessment.urls')),
     path('api/v1/', include('connector.urls')),
     path('api/v1/', include('api_orch.urls')),
+    path('api/v1/', include('api_custom_testing.urls')),
 ]
