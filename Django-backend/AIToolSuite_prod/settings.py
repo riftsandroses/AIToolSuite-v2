@@ -257,6 +257,13 @@ CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'UTC'
+CELERY_BEAT_SCHEDULE = {
+    'refresh-scan-tokens': {
+        'task': 'api_orch.tasks.refresh_scan_tokens',
+        'schedule': crontab(minute='*/10'),  # Run every 10 minutes
+    },
+}
+CELERYD_FORCE_EXECV = True
 
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')  # If using HTTPS
 USE_X_FORWARDED_HOST = True
@@ -265,10 +272,9 @@ USE_X_FORWARDED_HOST = True
 HCAPTCHA_SITE_KEY = os.environ.get('HCAPTCHA_SITE_KEY')
 HCAPTCHA_SECRET_KEY = os.environ.get('HCAPTCHA_SECRET_KEY')
 
-CELERY_BEAT_SCHEDULE = {
-    'refresh-scan-tokens': {
-        'task': 'api_orch.tasks.refresh_scan_tokens',
-        'schedule': crontab(minute='*/10'),  # Run every 10 minutes
-    },
+# OpenAI API Configuration
+OPENAI_API_KEY = 'your-openai-api-key-here' # Replace with os.getenv("OPENAI_API_KEY") in production
+OPENAI_RATE_LIMIT = {
+    'requests_per_minute': 60,
+    'tokens_per_minute': 40000,
 }
-CELERYD_FORCE_EXECV = True

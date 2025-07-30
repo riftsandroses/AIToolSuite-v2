@@ -4,6 +4,7 @@ import subprocess
 import tempfile
 import os
 from django.db import connection
+from django.conf import settings
 from typing import List, Dict, Any
 import logging
 
@@ -21,7 +22,7 @@ class LLMService:
         prompt = self._create_analysis_prompt(apis)
         
         payload = {
-            "model": "local-model",
+            "model": "phi-3-mini-4k-instruct",
             "messages": [
                 {
                     "role": "system",
@@ -93,6 +94,117 @@ Body: {api.get('body', {})}
                 return json.loads(json_match.group())
             return []
         except:
+            return []
+
+class ChatGPTService:
+    def __init__(self, api_key=None):
+        self.api_key = api_key or getattr(settings, 'OPENAI_API_KEY', None)
+        self.api_url = "https://api.openai.com/v1/chat/completions"
+        
+        if not self.api_key:
+            raise ValueError("OpenAI API key is required. Set OPENAI_API_KEY in settings.")
+    
+    def analyze_apis_for_sql_injection(self, apis: List[Dict]) -> List[str]:
+        """
+        Send APIs to ChatGPT for SQL injection vulnerability analysis
+        Returns list of API IDs that are potentially vulnerable
+        """
+        prompt = self._create_analysis_prompt(apis)
+        
+        payload = {
+            "model": "gpt-4o-mini",
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You are a cybersecurity expert specializing in API security. Analyze the provided APIs and identify which ones might be vulnerable to SQL injection attacks. Return only the API IDs as a JSON array with no additional text or explanation."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            "temperature": 0.1,
+            "max_tokens": 1000
+        }
+        
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}"
+        }
+        
+        try:
+            response = requests.post(
+                self.api_url,
+                headers=headers,
+                json=payload,
+                timeout=60
+            )
+            response.raise_for_status()
+            
+            result = response.json()
+            content = result['choices'][0]['message']['content']
+            
+            # Extract JSON from response
+            vulnerable_ids = self._parse_llm_response(content)
+            logger.info(f"ChatGPT identified {len(vulnerable_ids)} potentially vulnerable APIs")
+            return vulnerable_ids
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error communicating with ChatGPT API: {str(e)}")
+            return []
+        except Exception as e:
+            logger.error(f"Unexpected error with ChatGPT API: {str(e)}")
+            return []
+    
+    def _create_analysis_prompt(self, apis: List[Dict]) -> str:
+        """Create a prompt for ChatGPT to analyze APIs"""
+        prompt = """Analyze the following APIs for potential SQL injection vulnerabilities. 
+        Look for:
+        1. APIs with parameters that might be passed to database queries
+        2. GET/POST parameters that could contain user input
+        3. Endpoints that suggest database operations (search, filter, id lookups)
+        4. Missing parameter validation indicators
+        
+        APIs to analyze:
+        
+        """
+        
+        for api in apis:
+            prompt += f"""
+API ID: {api['id']}
+URL: {api['url']}
+Method: {api.get('method', 'GET')}
+Headers: {api.get('headers', {})}
+Body: {api.get('body', {})}
+---
+"""
+        
+        prompt += "\nReturn only a JSON array of API IDs that are potentially vulnerable to SQL injection: [\"id1\", \"id2\", ...]"
+        return prompt
+    
+    def _parse_llm_response(self, content: str) -> List[str]:
+        """Parse ChatGPT response to extract API IDs"""
+        try:
+            # Clean the content first
+            content = content.strip()
+            
+            # Try to find JSON array in the response
+            import re
+            json_match = re.search(r'\[.*?\]', content, re.DOTALL)
+            if json_match:
+                json_str = json_match.group()
+                return json.loads(json_str)
+            
+            # If no JSON array found, try to parse the entire content as JSON
+            if content.startswith('[') and content.endswith(']'):
+                return json.loads(content)
+                
+            return []
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON decode error: {str(e)}, Content: {content}")
+            return []
+        except Exception as e:
+            logger.error(f"Error parsing ChatGPT response: {str(e)}")
             return []
 
 class SQLMapService:
