@@ -273,7 +273,7 @@ HCAPTCHA_SITE_KEY = os.environ.get('HCAPTCHA_SITE_KEY')
 HCAPTCHA_SECRET_KEY = os.environ.get('HCAPTCHA_SECRET_KEY')
 
 # OpenAI API Configuration
-OPENAI_API_KEY = 'your-openai-api-key-here' # Replace with os.getenv("OPENAI_API_KEY") in production
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") # Replace with os.getenv("OPENAI_API_KEY") in production
 OPENAI_RATE_LIMIT = {
     'requests_per_minute': 60,
     'tokens_per_minute': 40000,
