@@ -17,6 +17,19 @@ class LLMService:
     def __init__(self, lm_studio_url="http://localhost:1234/v1/chat/completions"):
         self.lm_studio_url = lm_studio_url
     
+    #Improved System Prompt
+    IMPROVED_SYSTEM_MESSAGE = """You are a cybersecurity expert specializing in API security and SQL injection detection.
+
+Your task is to identify APIs that could potentially be vulnerable to SQL injection attacks.
+
+Key principles:
+1. SQL injection occurs when user input is incorporated into SQL queries without proper sanitization
+2. While modern frameworks often provide protection, vulnerabilities still exist in real-world applications
+3. Parameters that interact with databases should be flagged for testing
+4. Focus on identifying APIs that warrant security testing rather than definitive vulnerability assessment
+
+Balance thoroughness with accuracy - flag APIs that have reasonable potential for SQL injection vulnerabilities."""
+
     def analyze_apis_for_sql_injection(self, apis: List[Dict]) -> List[str]:
         """
         Send APIs to LLM for SQL injection vulnerability analysis
@@ -24,7 +37,9 @@ class LLMService:
         """
         if not apis:
             return []
-            
+        
+        logger.info(f"Analyzing {len(apis)} APIs for SQL injection vulnerabilities")
+        
         prompt = self._create_analysis_prompt(apis)
         
         payload = {
@@ -32,7 +47,7 @@ class LLMService:
             "messages": [
                 {
                     "role": "system",
-                    "content": "You are a cybersecurity expert specializing in API security. Analyze the provided APIs and identify which ones might be vulnerable to SQL injection attacks. Return only the API IDs as a JSON array with no additional text."
+                    "content": self.IMPROVED_SYSTEM_MESSAGE
                 },
                 {
                     "role": "user",
@@ -74,34 +89,103 @@ class LLMService:
             return []
     
     def _create_analysis_prompt(self, apis: List[Dict]) -> str:
-        """Create a prompt for the LLM to analyze APIs"""
-        prompt = """Analyze the following APIs for potential SQL injection vulnerabilities. 
-        Look for:
-        1. APIs with parameters that might be passed to database queries (id, search, filter, query)
-        2. GET/POST parameters that could contain user input
-        3. Endpoints that suggest database operations (search, filter, id lookups, CRUD operations)
-        4. URLs with query parameters or path parameters
-        
-        APIs to analyze:
-        
-        """
+        """Create a balanced prompt for the LLM to analyze APIs"""
+        prompt = """You are a cybersecurity expert specializing in API security and SQL injection detection.
+
+    ANALYSIS APPROACH:
+    - Flag APIs that have reasonable potential for SQL injection vulnerabilities
+    - Consider both obvious and subtle indicators of database interaction
+    - Balance thoroughness with accuracy to catch real vulnerabilities
+
+    VULNERABILITY INDICATORS - Flag APIs that show these patterns:
+
+    PRIMARY INDICATORS (Strong candidates for flagging):
+    1. Database-related parameters: id, user_id, product_id, search, query, filter, where, order_by, sort_by, limit, offset
+    2. CRUD endpoints with parameters: /users/{id}, /products/{id}, /api/data/{id}
+    3. Search and filtering functionality: /search, /filter, /find, /list with query parameters
+    4. Dynamic query construction patterns: endpoints with multiple query parameters
+    5. Sorting and pagination: APIs with sort, order, page, limit parameters
+    6. Data retrieval with user input: /api/users/search?name=, /api/products/filter?category=
+
+    SECONDARY INDICATORS (Consider for flagging):
+    1. Numeric parameters in URL paths or query strings
+    2. Text input parameters that could be used in database queries
+    3. APIs with complex parameter combinations
+    4. Endpoints suggesting database operations: /get, /find, /retrieve, /lookup
+    5. Parameters with database-like names: table, column, field, record
+
+    PATTERNS TO GENERALLY EXCLUDE:
+    1. Static endpoints with no parameters: /api/health, /api/version, /api/status
+    2. File operations: /upload, /download, /file
+    3. Authentication without data queries: /login, /logout, /token, /auth
+    4. Configuration endpoints: /config, /settings (unless they have query parameters)
+    5. Pure metadata endpoints: /schema, /docs, /help
+
+    EVALUATION GUIDELINES:
+    1. If an API has user-controllable parameters that could reach a database, consider flagging it
+    2. Multiple parameters increase likelihood of vulnerability
+    3. Common database operation patterns should be flagged
+    4. When uncertain about borderline cases, lean toward flagging for security testing
+    5. Consider the HTTP method - POST/PUT with data parameters are often worth testing
+
+    APIs to analyze:
+
+    """
         
         for api in apis:
-            # Parse URL to extract query parameters
+            # Parse URL to extract query parameters and path structure
             parsed_url = urlparse(api['url'])
             query_params = parse_qs(parsed_url.query)
+            path_segments = [seg for seg in parsed_url.path.split('/') if seg]
+            
+            # Extract potential path parameters (like /users/{id})
+            path_params = []
+            for i, segment in enumerate(path_segments):
+                if i < len(path_segments) - 1:
+                    next_segment = path_segments[i + 1]
+                    # Check if next segment could be a parameter (numeric or placeholder-like)
+                    if (next_segment.isdigit() or 
+                        '{' in next_segment or 
+                        next_segment.startswith(':') or
+                        len(next_segment) > 10):  # Could be an ID
+                        path_params.append(f"{segment}_id")
+            
+            # Analyze body parameters if present
+            body_params = []
+            body_content = api.get('body', {})
+            if isinstance(body_content, dict):
+                body_params = list(body_content.keys())
+            elif isinstance(body_content, str):
+                try:
+                    parsed_body = json.loads(body_content)
+                    if isinstance(parsed_body, dict):
+                        body_params = list(parsed_body.keys())
+                except:
+                    pass
             
             prompt += f"""
-API ID: {api['id']}
-URL: {api['url']}
-Method: {api.get('method', 'GET')}
-Query Parameters: {list(query_params.keys()) if query_params else 'None'}
-Headers: {json.dumps(api.get('headers', {}), indent=2)}
-Body: {json.dumps(api.get('body', {}), indent=2) if api.get('body') else 'None'}
----
-"""
+    API ID: {api['id']}
+    URL: {api['url']}
+    Method: {api.get('method', 'GET')}
+    Path Structure: /{'/'.join(path_segments)}
+    Query Parameters: {list(query_params.keys()) if query_params else 'None'}
+    Path Parameters: {path_params if path_params else 'None'}
+    Body Parameters: {body_params if body_params else 'None'}
+    Content-Type: {api.get('headers', {}).get('Content-Type', 'Not specified')}
+    ---
+    """
         
-        prompt += "\nReturn ONLY a JSON array of API IDs that are potentially vulnerable to SQL injection (no explanations): [\"id1\", \"id2\", ...]"
+        prompt += """
+    RESPONSE FORMAT:
+    Return ONLY a JSON array of API IDs that have reasonable potential for SQL injection vulnerability.
+    Include APIs that warrant security testing based on the indicators above.
+    Focus on APIs with user-controllable parameters that could interact with databases.
+
+    Example: ["api_id_1", "api_id_3", "api_id_7"]
+
+    If no APIs meet the criteria, return an empty array: []
+    """
+        
         return prompt
     
     def _parse_llm_response(self, content: str) -> List[str]:
@@ -143,6 +227,20 @@ class ChatGPTService:
         if not self.api_key:
             raise ValueError("OpenAI API key is required. Set OPENAI_API_KEY in settings.")
     
+    #Improved System Prompt
+    IMPROVED_SYSTEM_MESSAGE = """You are a cybersecurity expert specializing in API security and SQL injection detection.
+
+Your task is to identify APIs that could potentially be vulnerable to SQL injection attacks.
+
+Key principles:
+1. SQL injection occurs when user input is incorporated into SQL queries without proper sanitization
+2. While modern frameworks often provide protection, vulnerabilities still exist in real-world applications
+3. Parameters that interact with databases should be flagged for testing
+4. Focus on identifying APIs that warrant security testing rather than definitive vulnerability assessment
+
+Balance thoroughness with accuracy - flag APIs that have reasonable potential for SQL injection vulnerabilities."""
+
+    
     def analyze_apis_for_sql_injection(self, apis: List[Dict]) -> List[str]:
         """
         Send APIs to ChatGPT for SQL injection vulnerability analysis
@@ -150,15 +248,17 @@ class ChatGPTService:
         """
         if not apis:
             return []
-            
-        prompt = self._create_analysis_prompt(apis)
         
+        logger.info(f"Analyzing {len(apis)} APIs for SQL injection vulnerabilities")
+        
+        prompt = self._create_analysis_prompt(apis)
+
         payload = {
             "model": "gpt-4o",
             "messages": [
                 {
                     "role": "system",
-                    "content": "You are a cybersecurity expert specializing in API security. Analyze the provided APIs and identify which ones might be vulnerable to SQL injection attacks. Return ONLY the API IDs as a JSON array with no additional text or explanation."
+                    "content": self.IMPROVED_SYSTEM_MESSAGE
                 },
                 {
                     "role": "user",
@@ -201,34 +301,103 @@ class ChatGPTService:
             return []
     
     def _create_analysis_prompt(self, apis: List[Dict]) -> str:
-        """Create a prompt for ChatGPT to analyze APIs"""
-        prompt = """Analyze the following APIs for potential SQL injection vulnerabilities. 
-        Look for:
-        1. APIs with parameters that might be passed to database queries (id, search, filter, query)
-        2. GET/POST parameters that could contain user input
-        3. Endpoints that suggest database operations (search, filter, id lookups, CRUD operations)
-        4. URLs with query parameters or path parameters
-        
-        APIs to analyze:
-        
-        """
+        """Create a balanced prompt for the LLM to analyze APIs"""
+        prompt = """You are a cybersecurity expert specializing in API security and SQL injection detection.
+
+    ANALYSIS APPROACH:
+    - Flag APIs that have reasonable potential for SQL injection vulnerabilities
+    - Consider both obvious and subtle indicators of database interaction
+    - Balance thoroughness with accuracy to catch real vulnerabilities
+
+    VULNERABILITY INDICATORS - Flag APIs that show these patterns:
+
+    PRIMARY INDICATORS (Strong candidates for flagging):
+    1. Database-related parameters: id, user_id, product_id, search, query, filter, where, order_by, sort_by, limit, offset
+    2. CRUD endpoints with parameters: /users/{id}, /products/{id}, /api/data/{id}
+    3. Search and filtering functionality: /search, /filter, /find, /list with query parameters
+    4. Dynamic query construction patterns: endpoints with multiple query parameters
+    5. Sorting and pagination: APIs with sort, order, page, limit parameters
+    6. Data retrieval with user input: /api/users/search?name=, /api/products/filter?category=
+
+    SECONDARY INDICATORS (Consider for flagging):
+    1. Numeric parameters in URL paths or query strings
+    2. Text input parameters that could be used in database queries
+    3. APIs with complex parameter combinations
+    4. Endpoints suggesting database operations: /get, /find, /retrieve, /lookup
+    5. Parameters with database-like names: table, column, field, record
+
+    PATTERNS TO GENERALLY EXCLUDE:
+    1. Static endpoints with no parameters: /api/health, /api/version, /api/status
+    2. File operations: /upload, /download, /file
+    3. Authentication without data queries: /login, /logout, /token, /auth
+    4. Configuration endpoints: /config, /settings (unless they have query parameters)
+    5. Pure metadata endpoints: /schema, /docs, /help
+
+    EVALUATION GUIDELINES:
+    1. If an API has user-controllable parameters that could reach a database, consider flagging it
+    2. Multiple parameters increase likelihood of vulnerability
+    3. Common database operation patterns should be flagged
+    4. When uncertain about borderline cases, lean toward flagging for security testing
+    5. Consider the HTTP method - POST/PUT with data parameters are often worth testing
+
+    APIs to analyze:
+
+    """
         
         for api in apis:
-            # Parse URL to extract query parameters
+            # Parse URL to extract query parameters and path structure
             parsed_url = urlparse(api['url'])
             query_params = parse_qs(parsed_url.query)
+            path_segments = [seg for seg in parsed_url.path.split('/') if seg]
+            
+            # Extract potential path parameters (like /users/{id})
+            path_params = []
+            for i, segment in enumerate(path_segments):
+                if i < len(path_segments) - 1:
+                    next_segment = path_segments[i + 1]
+                    # Check if next segment could be a parameter (numeric or placeholder-like)
+                    if (next_segment.isdigit() or 
+                        '{' in next_segment or 
+                        next_segment.startswith(':') or
+                        len(next_segment) > 10):  # Could be an ID
+                        path_params.append(f"{segment}_id")
+            
+            # Analyze body parameters if present
+            body_params = []
+            body_content = api.get('body', {})
+            if isinstance(body_content, dict):
+                body_params = list(body_content.keys())
+            elif isinstance(body_content, str):
+                try:
+                    parsed_body = json.loads(body_content)
+                    if isinstance(parsed_body, dict):
+                        body_params = list(parsed_body.keys())
+                except:
+                    pass
             
             prompt += f"""
-API ID: {api['id']}
-URL: {api['url']}
-Method: {api.get('method', 'GET')}
-Query Parameters: {list(query_params.keys()) if query_params else 'None'}
-Headers: {json.dumps(api.get('headers', {}), indent=2)}
-Body: {json.dumps(api.get('body', {}), indent=2) if api.get('body') else 'None'}
----
-"""
+    API ID: {api['id']}
+    URL: {api['url']}
+    Method: {api.get('method', 'GET')}
+    Path Structure: /{'/'.join(path_segments)}
+    Query Parameters: {list(query_params.keys()) if query_params else 'None'}
+    Path Parameters: {path_params if path_params else 'None'}
+    Body Parameters: {body_params if body_params else 'None'}
+    Content-Type: {api.get('headers', {}).get('Content-Type', 'Not specified')}
+    ---
+    """
         
-        prompt += "\nReturn ONLY a JSON array of API IDs that are potentially vulnerable to SQL injection (no explanations): [\"id1\", \"id2\", ...]"
+        prompt += """
+    RESPONSE FORMAT:
+    Return ONLY a JSON array of API IDs that have reasonable potential for SQL injection vulnerability.
+    Include APIs that warrant security testing based on the indicators above.
+    Focus on APIs with user-controllable parameters that could interact with databases.
+
+    Example: ["api_id_1", "api_id_3", "api_id_7"]
+
+    If no APIs meet the criteria, return an empty array: []
+    """
+        
         return prompt
     
     def _parse_llm_response(self, content: str) -> List[str]:
@@ -381,7 +550,8 @@ class SQLMapService:
             "--tables",
             "--columns",
             "--dump",
-            "-v", "3"
+            "--delay=0.033",
+            "-v", "3", 
         ])
 
         return cmd
@@ -423,7 +593,6 @@ class SQLMapService:
             file_handle.write(body_str)
         else:
             file_handle.write("\n")
-
 
     def _extract_sqlmap_dump(self, output_dir: str) -> str:
         dump_dir = os.path.join(output_dir, "dump")
