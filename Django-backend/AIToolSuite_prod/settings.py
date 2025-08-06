@@ -59,6 +59,7 @@ INSTALLED_APPS = [
     'risk_assessment',
     'connector',
     'api_orch',
+    'api_9',
     'api_custom_testing'
 ]
 
@@ -225,8 +226,12 @@ LOGGING = {
         'file': {
             'level': 'INFO',
             'class': 'logging.FileHandler',
-            'filename': os.path.join(BASE_DIR, 'scanner_logs.log'),
+            'filename': os.path.join(BASE_DIR, 'runtime_logs.log'),
             'formatter': 'verbose',
+        },
+        'console': {
+                'level': 'INFO',
+                'class': 'logging.StreamHandler',
         },
     },
     'loggers': {
@@ -238,6 +243,12 @@ LOGGING = {
 
         'api_custom_testing': {
             'handlers': ['file'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+
+        'api_9.views': {
+            'handlers': ['file', 'console'],
             'level': 'INFO',
             'propagate': True,
         },
