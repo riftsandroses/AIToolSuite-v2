@@ -1,6 +1,9 @@
 # Ignore OS-specific files
 .DS_Store
 
+# Feroxbuster State Files
+*.state
+
 # Ignore .env files and variants in all directories (recursive)
 **/.env
 **/.env.*

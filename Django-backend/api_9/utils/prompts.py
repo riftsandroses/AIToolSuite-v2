@@ -6,6 +6,8 @@ import json
 import os
 from urllib.parse import urlparse, urljoin
 from django.conf import settings
+import logging
+logger = logging.getLogger(__name__)
 
 class EndpointDiscoveryService:
     def __init__(self):
@@ -57,7 +59,7 @@ class EndpointDiscoveryService:
     
     def run_feroxbuster(self, base_url, jwt_token):
         """
-        Run feroxbuster as subprocess to discover endpoints
+        Run feroxbuster as subprocess to discover API endpoints specifically
         """
         try:
             # Use the custom wordlist from api_9/wordlist/
@@ -66,7 +68,7 @@ class EndpointDiscoveryService:
                 print(f"Wordlist not found: {wordlist_path}")
                 return []
 
-            # Prepare feroxbuster command
+            # Prepare feroxbuster command with API-specific parameters
             cmd = [
                 'feroxbuster',
                 '-u', base_url,
@@ -75,8 +77,11 @@ class EndpointDiscoveryService:
                 '--json',
                 '-t', '75',  # 75 threads
                 '--depth', '3',
-                '--filter-status', '404',
-                '--silent'
+                '--filter-status', '404,500',  # Exclude not found and server errors
+                '--filter-size', '0',  # Ignore empty responses
+                '--filter-regex', 'content-type:.*(json|xml)',  # Only JSON/XML responses
+                '--silent',
+                '--no-recursion'  # Prevent recursive scanning of non-API directories
             ]
 
             # Run feroxbuster
@@ -90,7 +95,7 @@ class EndpointDiscoveryService:
             logger.info(f"Feroxbuster process started with PID: {process.pid}")
 
             try:
-                stdout, stderr = process.communicate(timeout=600)
+                stdout, stderr = process.communicate(timeout=300)
             except subprocess.TimeoutExpired:
                 process.kill()
                 print("Feroxbuster timeout")
@@ -110,12 +115,17 @@ class EndpointDiscoveryService:
                             endpoint_url = result.get('url', '')
                             status_code = result.get('status', 0)
                             method = result.get('method', 'GET')
+                            content_type = result.get('headers', {}).get('content-type', '')
 
-                            if endpoint_url and status_code < 400:
+                            # Additional validation for API endpoints
+                            if (endpoint_url and 
+                                status_code < 400 and
+                                any(x in content_type.lower() for x in ['json', 'xml'])):
                                 endpoints.append({
                                     'url': endpoint_url,
                                     'status_code': status_code,
-                                    'method': method
+                                    'method': method,
+                                    'content_type': content_type
                                 })
                     except json.JSONDecodeError:
                         continue
