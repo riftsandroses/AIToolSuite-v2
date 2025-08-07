@@ -1,5 +1,6 @@
+import asyncio
 from celery import shared_task, current_task
-from .services import SubdomainDiscoveryService
+from .services import SubdomainDiscoveryService, run_documentation_scan
 import logging
 
 logger = logging.getLogger(__name__)
@@ -71,3 +72,15 @@ def async_subdomain_discovery(self, scan_id):
             meta={'error': str(e)}
         )
         return {'error': str(e)}
+
+@shared_task
+def scan_documentation_task(scan_id):
+    """Celery task to run documentation scan in background"""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    try:
+        result = loop.run_until_complete(run_documentation_scan(scan_id))
+        return result
+    finally:
+        loop.close()

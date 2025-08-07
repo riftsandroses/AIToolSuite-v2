@@ -1,6 +1,6 @@
 # api_9/serializers.py
 from rest_framework import serializers
-from .models import UnlistedEndpoints, SubdomainDiscovery
+from .models import UnlistedEndpoints, SubdomainDiscovery, DocumentationEndpoint
 
 class EndpointDiscoverySerializer(serializers.Serializer):
     scan_id = serializers.CharField(max_length=100)
@@ -17,3 +17,11 @@ class SubdomainDiscoverySerializer(serializers.ModelSerializer):
 
 class ScanRequestSerializer(serializers.Serializer):
     scan_id = serializers.CharField(max_length=100)
+
+class DocumentationScanSerializer(serializers.Serializer):
+    scan_id = serializers.CharField(max_length=100)
+
+class DocumentationEndpointSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DocumentationEndpoint
+        fields = '__all__'

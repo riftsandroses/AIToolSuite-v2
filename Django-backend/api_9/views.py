@@ -1,6 +1,8 @@
 # api_9/views.py
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
+from django.shortcuts import get_object_or_404
+from django.db.models import Count, Q
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.decorators import api_view
@@ -8,14 +10,16 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.response import Response
 from django.db import connection
-from .models import UnlistedEndpoints, SubdomainDiscovery
-from .serializers import EndpointDiscoverySerializer, UnlistedEndpointsSerializer, ScanRequestSerializer, SubdomainDiscoverySerializer
-from .services import SubdomainDiscoveryService
+from .models import UnlistedEndpoints, SubdomainDiscovery, DocumentationEndpoint
+from .serializers import EndpointDiscoverySerializer, UnlistedEndpointsSerializer, ScanRequestSerializer, SubdomainDiscoverySerializer, DocumentationScanSerializer, DocumentationEndpointSerializer
+from .services import SubdomainDiscoveryService, run_documentation_scan
 from .utils.prompts import EndpointDiscoveryService
-from .tasks import async_subdomain_discovery
+from .tasks import async_subdomain_discovery, scan_documentation_task
 from AIToolSuite_prod.celery import app
 from celery.result import AsyncResult
+import asyncio
 import logging
+
 
 logger = logging.getLogger(__name__)
 
@@ -246,3 +250,125 @@ class TaskStatusView(APIView):
                 {"error": f"Error checking task status: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+class StartDocumentationScanView(APIView):
+    """
+    Start a documentation scan for the given scan_id
+    POST /api/v1/scan-documentation/
+    {
+        "scan_id": "your_scan_id_here"
+    }
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        serializer = DocumentationScanSerializer(data=request.data)
+        
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        scan_id = serializer.validated_data['scan_id']
+        
+        try:
+            # Option 1: Run synchronously (for immediate results)
+            # Uncomment the next 3 lines if you want synchronous execution
+            # loop = asyncio.new_event_loop()
+            # asyncio.set_event_loop(loop)
+            # result = loop.run_until_complete(run_documentation_scan(scan_id))
+            
+            # Option 2: Run asynchronously with Celery (recommended for production)
+            task = scan_documentation_task.delay(scan_id)
+            result = {
+                "status": "started",
+                "message": "Documentation scan started in background",
+                "task_id": task.id,
+                "scan_id": scan_id
+            }
+            
+            return Response(result, status=status.HTTP_202_ACCEPTED)
+            
+        except Exception as e:
+            logger.error(f"Failed to start documentation scan: {str(e)}")
+            return Response(
+                {"status": "error", "message": str(e)}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class GetScanResultsView(APIView):
+    """
+    Get documentation scan results for a specific scan_id
+    GET /api/v1/scan-results/{scan_id}/
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, scan_id):
+        endpoints = DocumentationEndpoint.objects.filter(scan_id=scan_id)
+        
+        # Add filtering options
+        doc_type = request.GET.get('doc_type')
+        status_filter = request.GET.get('status')
+        
+        if doc_type:
+            endpoints = endpoints.filter(doc_type=doc_type)
+        
+        if status_filter:
+            endpoints = endpoints.filter(status=status_filter)
+        
+        serializer = DocumentationEndpointSerializer(endpoints, many=True)
+        
+        return Response({
+            "scan_id": scan_id,
+            "total_results": endpoints.count(),
+            "results": serializer.data
+        })
+
+
+class GetScanSummaryView(APIView):
+    """
+    Get summary statistics for a documentation scan
+    GET /api/v1/scan-summary/{scan_id}/
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, scan_id):
+        endpoints = DocumentationEndpoint.objects.filter(scan_id=scan_id)
+        
+        if not endpoints.exists():
+            return Response(
+                {"error": "No scan results found for this scan_id"}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Get statistics
+        stats = endpoints.aggregate(
+            total_endpoints=Count('id'),
+            success_count=Count('id', filter=Q(status='success')),
+            forbidden_count=Count('id', filter=Q(status='forbidden')),
+            unauthorized_count=Count('id', filter=Q(status='unauthorized')),
+        )
+        
+        # Get breakdown by doc type
+        doc_type_breakdown = list(
+            endpoints.values('doc_type')
+            .annotate(count=Count('id'))
+            .order_by('-count')
+        )
+        
+        # Get breakdown by status
+        status_breakdown = list(
+            endpoints.values('status', 'status_code')
+            .annotate(count=Count('id'))
+            .order_by('-count')
+        )
+        
+        return Response({
+            "scan_id": scan_id,
+            "summary": stats,
+            "doc_type_breakdown": doc_type_breakdown,
+            "status_breakdown": status_breakdown,
+            "latest_scan": endpoints.first().scan_timestamp if endpoints.exists() else None
+        })

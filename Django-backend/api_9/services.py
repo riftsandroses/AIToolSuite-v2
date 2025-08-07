@@ -1,14 +1,20 @@
-# services.py - Updated with PATH fixes
+# services.py
 import openai
 import subprocess
 import json
 import logging
 import shutil
 import os
-from urllib.parse import urlparse
+import requests
+import asyncio
+import aiohttp
+from asgiref.sync import sync_to_async
+from urllib.parse import urlparse, urljoin
+from django.db import connection, transaction
 from django.conf import settings
 from api_orch.models import PostmanAPI
-from .models import SubdomainDiscovery
+from .models import SubdomainDiscovery, DocumentationEndpoint
+import logging
 
 logger = logging.getLogger(__name__)
 
@@ -326,3 +332,206 @@ class SubdomainDiscoveryService:
         except Exception as e:
             logger.error(f"Error processing scan {scan_id}: {str(e)}")
             return {'error': str(e)}
+
+class DocumentationScanner:
+    # Common documentation endpoints to check
+    DOC_ENDPOINTS = [
+        '/swagger/',
+        '/swagger.json',
+        '/swagger.yaml',
+        '/swagger/index.html',
+        '/api/swagger/',
+        '/api/swagger.json',
+        '/api/swagger.yaml',
+        '/docs/',
+        '/api/docs/',
+        '/documentation/',
+        '/api/documentation/',
+        '/openapi.json',
+        '/openapi.yaml',
+        '/api/openapi.json',
+        '/api/openapi.yaml',
+        '/redoc/',
+        '/api/redoc/',
+        '/api-docs/',
+        '/api/v1/docs/',
+        '/api/v2/docs/',
+        '/spec/',
+        '/api/spec/',
+        '/.well-known/schema',
+        '/schema/',
+        '/api/schema/',
+        '/graphql',
+        '/api/graphql',
+    ]
+
+    def __init__(self, scan_id):
+        self.scan_id = scan_id
+        self.timeout = aiohttp.ClientTimeout(total=10)
+
+    async def scan_base_urls(self, base_urls):
+        """Scan multiple base URLs for documentation endpoints"""
+        async with aiohttp.ClientSession(timeout=self.timeout) as session:
+            tasks = []
+            for base_url in base_urls:
+                tasks.append(self._scan_single_base_url(session, base_url))
+            
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def _scan_single_base_url(self, session, base_url):
+        """Scan a single base URL for all documentation endpoints"""
+        base_url = base_url.rstrip('/')
+        
+        tasks = []
+        for endpoint in self.DOC_ENDPOINTS:
+            full_url = urljoin(base_url + '/', endpoint.lstrip('/'))
+            tasks.append(self._check_endpoint(session, base_url, full_url, endpoint))
+        
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def _check_endpoint(self, session, base_url, endpoint_url, endpoint_path):
+        """Check a specific endpoint for documentation"""
+        try:
+            headers = {
+                'User-Agent': 'API-Documentation-Scanner/1.0',
+                'Accept': 'application/json, text/html, application/yaml, text/yaml, */*'
+            }
+            
+            async with session.get(endpoint_url, headers=headers, allow_redirects=True) as response:
+                status_code = response.status
+                content_type = response.headers.get('content-type', '').lower()
+                
+                # Only process successful or forbidden responses (not 404, 500, etc.)
+                if status_code in [200, 401, 403]:
+                    # Read response content (limit to avoid memory issues)
+                    content = await response.text()
+                    response_size = len(content)
+                    response_preview = content[:1000] if content else ""
+                    
+                    # Determine documentation type
+                    doc_type = self._determine_doc_type(endpoint_path, content_type, content)
+                    
+                    # Determine status
+                    status = self._get_status(status_code)
+                    
+                    # Save to database
+                    await self._save_endpoint(
+                        base_url=base_url,
+                        endpoint_url=endpoint_url,
+                        doc_type=doc_type,
+                        status_code=status_code,
+                        status=status,
+                        content_type=content_type,
+                        response_size=response_size,
+                        response_preview=response_preview
+                    )
+                    
+                    logger.info(f"Found documentation endpoint: {endpoint_url} ({status_code})")
+                    
+        except asyncio.TimeoutError:
+            logger.warning(f"Timeout checking {endpoint_url}")
+        except Exception as e:
+            logger.error(f"Error checking {endpoint_url}: {str(e)}")
+
+    def _determine_doc_type(self, endpoint_path, content_type, content):
+        """Determine the type of documentation based on URL and content"""
+        endpoint_lower = endpoint_path.lower()
+        content_lower = content.lower() if content else ""
+        
+        if 'swagger' in endpoint_lower:
+            return 'swagger'
+        elif 'openapi' in endpoint_lower:
+            return 'openapi'
+        elif 'redoc' in endpoint_lower:
+            return 'redoc'
+        elif 'docs' in endpoint_lower or 'documentation' in endpoint_lower:
+            return 'docs'
+        elif 'api-docs' in endpoint_lower:
+            return 'api-docs'
+        elif any(term in content_lower for term in ['swagger', 'openapi']):
+            return 'swagger'
+        else:
+            return 'other'
+
+    def _get_status(self, status_code):
+        """Convert status code to status category"""
+        if status_code == 200:
+            return 'success'
+        elif status_code == 401:
+            return 'unauthorized'
+        elif status_code == 403:
+            return 'forbidden'
+        else:
+            return 'other'
+
+    async def _save_endpoint(self, **kwargs):
+        """Save endpoint data to database"""
+        @sync_to_async
+        def _save():
+            DocumentationEndpoint.objects.update_or_create(
+                scan_id=self.scan_id,
+                endpoint_url=kwargs['endpoint_url'],
+                defaults={
+                    'base_url': kwargs['base_url'],
+                    'doc_type': kwargs['doc_type'],
+                    'status_code': kwargs['status_code'],
+                    'status': kwargs['status'],
+                    'response_content_type': kwargs['content_type'],
+                    'response_size': kwargs['response_size'],
+                    'response_preview': kwargs['response_preview'],
+                }
+            )
+        
+        await _save()
+
+
+@sync_to_async
+def get_base_urls_from_scan_id(scan_id):
+    """Get base URLs from api_orch_postmanapi table"""
+    
+    with connection.cursor() as cursor:
+        cursor.execute("""
+            SELECT DISTINCT url 
+            FROM api_orch_postmanapi 
+            WHERE scan_id = %s AND url IS NOT NULL
+        """, [scan_id])
+        
+        rows = cursor.fetchall()
+        base_urls = [row[0] for row in rows if row[0]]
+        
+    return base_urls
+
+
+async def run_documentation_scan(scan_id):
+    """Main function to run the documentation scan"""
+    try:
+        # Get base URLs from the database
+        base_urls = await get_base_urls_from_scan_id(scan_id)
+        
+        if not base_urls:
+            logger.warning(f"No base URLs found for scan_id: {scan_id}")
+            return {"status": "error", "message": "No base URLs found"}
+        
+        logger.info(f"Starting documentation scan for {len(base_urls)} base URLs")
+        
+        # Run the scan
+        scanner = DocumentationScanner(scan_id)
+        await scanner.scan_base_urls(base_urls)
+        
+        # Get results count
+        @sync_to_async
+        def get_results_count():
+            return DocumentationEndpoint.objects.filter(scan_id=scan_id).count()
+
+        results_count = await get_results_count()
+        
+        return {
+            "status": "success", 
+            "message": f"Scan completed. Found {results_count} documentation endpoints.",
+            "scanned_urls": len(base_urls),
+            "results_count": results_count
+        }
+        
+    except Exception as e:
+        logger.error(f"Documentation scan failed: {str(e)}")
+        return {"status": "error", "message": str(e)}

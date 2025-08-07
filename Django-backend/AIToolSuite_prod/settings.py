@@ -247,6 +247,12 @@ LOGGING = {
             'propagate': True,
         },
 
+        'api_9': {
+            'handlers': ['file', 'console'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+
         'api_9.views': {
             'handlers': ['file', 'console'],
             'level': 'INFO',
