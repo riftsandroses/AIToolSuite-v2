@@ -77,3 +77,52 @@ class DocumentationEndpoint(models.Model):
 
     def __str__(self):
         return f"{self.scan_id} - {self.endpoint_url} ({self.status_code})"
+
+
+class VulnerableMethodScan(models.Model):
+    SEVERITY_CHOICES = [
+        ('low', 'Low'),
+        ('medium', 'Medium'),
+        ('high', 'High'),
+        ('critical', 'Critical'),
+    ]
+    
+    scan_id = models.CharField(max_length=255, db_index=True)
+    api_url = models.URLField()
+    vulnerable_method = models.CharField(max_length=20)
+    severity = models.CharField(max_length=10, choices=SEVERITY_CHOICES)
+    description = models.TextField()
+    response_status = models.IntegerField(null=True, blank=True)
+    response_headers = models.JSONField(default=dict, blank=True)
+    scan_timestamp = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'vulnerable_method_scans'
+        indexes = [
+            models.Index(fields=['scan_id']),
+            models.Index(fields=['vulnerable_method']),
+            models.Index(fields=['severity']),
+        ]
+    
+    def __str__(self):
+        return f"Scan {self.scan_id} - {self.api_url} - {self.vulnerable_method}"
+
+
+class APIVersionCheck(models.Model):
+    scan_id = models.CharField(max_length=100)
+    original_api_url = models.URLField()
+    version = models.CharField(max_length=50)
+    is_accessible = models.BooleanField()
+    response_status_code = models.IntegerField(null=True, blank=True)
+    response_time = models.FloatField(null=True, blank=True)  # in seconds
+    checked_at = models.DateTimeField(auto_now_add=True)
+    error_message = models.TextField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'api_version_checks'
+        unique_together = ['scan_id', 'original_api_url', 'version']
+
+    def __str__(self):
+        return f"{self.scan_id} - {self.original_api_url} ({self.version})"

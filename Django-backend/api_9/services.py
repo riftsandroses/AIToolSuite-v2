@@ -1,13 +1,17 @@
 # services.py
 import openai
+from openai import OpenAI
 import subprocess
 import json
 import logging
 import shutil
 import os
+import time
+import re
 import requests
 import asyncio
 import aiohttp
+from typing import List, Dict, Tuple
 from asgiref.sync import sync_to_async
 from urllib.parse import urlparse, urljoin
 from django.db import connection, transaction
@@ -16,9 +20,9 @@ from api_orch.models import PostmanAPI
 from .models import SubdomainDiscovery, DocumentationEndpoint
 import logging
 
+
 logger = logging.getLogger(__name__)
 
-from openai import OpenAI
 
 class ChatGPTService:
     def __init__(self):
@@ -535,3 +539,148 @@ async def run_documentation_scan(scan_id):
     except Exception as e:
         logger.error(f"Documentation scan failed: {str(e)}")
         return {"status": "error", "message": str(e)}
+
+
+class APIVersionEnumerator:
+    def __init__(self, use_openai=False):
+        self.use_openai = use_openai
+        if use_openai:
+            openai_api_key = getattr(settings, 'OPENAI_API_KEY', None)
+            if openai_api_key:
+                openai.api_key = openai_api_key
+            else:
+                raise ValueError("OPENAI_API_KEY not found in settings.py")
+        
+        # Common version patterns to check
+        self.version_patterns = [
+            'v1', 'v2', 'v3', 'v4', 'v5',
+            'api/v1', 'api/v2', 'api/v3', 'api/v4', 'api/v5',
+            'alpha', 'beta', 'dev', 'test', 'staging',
+            'v1.0', 'v1.1', 'v1.2', 'v2.0', 'v2.1',
+            '1.0', '1.1', '1.2', '2.0', '2.1',
+            'latest', 'stable', 'preview'
+        ]
+    
+    def extract_base_url(self, api_url: str) -> str:
+        """Extract base URL from API endpoint"""
+        parsed = urlparse(api_url)
+        base_url = f"{parsed.scheme}://{parsed.netloc}"
+        
+        # Remove common version patterns from path
+        path = parsed.path
+        for pattern in ['v1', 'v2', 'v3', 'v4', 'v5', 'api/v1', 'api/v2', 'alpha', 'beta']:
+            if pattern in path:
+                path = path.replace(f'/{pattern}', '').replace(f'{pattern}/', '')
+        
+        return base_url + path if path != '/' else base_url
+    
+    async def check_url_accessibility(self, session: aiohttp.ClientSession, url: str) -> Tuple[bool, int, float, str]:
+        """Check if URL is accessible and return status"""
+        start_time = time.time()
+        try:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                response_time = time.time() - start_time
+                return True, response.status, response_time, None
+        except asyncio.TimeoutError:
+            response_time = time.time() - start_time
+            return False, 408, response_time, "Request timeout"
+        except Exception as e:
+            response_time = time.time() - start_time
+            return False, 0, response_time, str(e)
+    
+    async def enumerate_versions_async(self, api_urls: List[str]) -> List[Dict]:
+        """Asynchronously check multiple API versions"""
+        results = []
+        
+        async with aiohttp.ClientSession() as session:
+            tasks = []
+            
+            for api_url in api_urls:
+                base_url = self.extract_base_url(api_url)
+                
+                # Generate version URLs to check
+                version_urls = self.generate_version_urls(base_url, api_url)
+                
+                for version, version_url in version_urls:
+                    task = self.check_single_version(session, api_url, version, version_url)
+                    tasks.append(task)
+            
+            # Execute all checks concurrently
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Filter out exceptions
+            valid_results = [r for r in results if isinstance(r, dict)]
+            
+        return valid_results
+    
+    async def check_single_version(self, session: aiohttp.ClientSession, original_url: str, version: str, version_url: str) -> Dict:
+        """Check a single version URL"""
+        is_accessible, status_code, response_time, error = await self.check_url_accessibility(session, version_url)
+        
+        return {
+            'original_api_url': original_url,
+            'version': version,
+            'version_url': version_url,
+            'is_accessible': is_accessible,
+            'response_status_code': status_code,
+            'response_time': response_time,
+            'error_message': error
+        }
+    
+    def generate_version_urls(self, base_url: str, original_url: str) -> List[Tuple[str, str]]:
+        """Generate list of version URLs to check"""
+        version_urls = []
+        parsed = urlparse(original_url)
+        
+        for version in self.version_patterns:
+            # Method 1: Replace in path
+            if '/api/' in parsed.path:
+                new_path = parsed.path.replace('/api/', f'/api/{version}/')
+                version_url = f"{parsed.scheme}://{parsed.netloc}{new_path}"
+                version_urls.append((version, version_url))
+            
+            # Method 2: Add version to base path
+            version_url = urljoin(base_url, f"/{version}")
+            if version_url not in [vu[1] for vu in version_urls]:
+                version_urls.append((version, version_url))
+            
+            # Method 3: Add version as subdomain
+            if not parsed.netloc.startswith(version):
+                subdomain_url = f"{parsed.scheme}://{version}.{parsed.netloc}{parsed.path}"
+                version_urls.append((f"{version}-subdomain", subdomain_url))
+        
+        return version_urls
+    
+    def get_openai_suggestions(self, api_url: str) -> List[str]:
+        """Use OpenAI to suggest potential version endpoints"""
+        if not self.use_openai:
+            return []
+        
+        try:
+            prompt = f"""
+            Given this API endpoint: {api_url}
+            
+            Suggest 10 potential version endpoints that might exist for this API.
+            Consider common patterns like:
+            - Version numbers (v1, v2, etc.)
+            - Semantic versioning (v1.0, v2.1, etc.)
+            - Environment versions (alpha, beta, dev, staging)
+            - Path-based versioning
+            - Subdomain-based versioning
+            
+            Return only the URLs, one per line, no explanations.
+            """
+            
+            response = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=500,
+                temperature=0.3
+            )
+            
+            suggestions = response.choices[0].message.content.strip().split('\n')
+            return [s.strip() for s in suggestions if s.strip().startswith('http')]
+            
+        except Exception as e:
+            print(f"OpenAI API error: {e}")
+            return []

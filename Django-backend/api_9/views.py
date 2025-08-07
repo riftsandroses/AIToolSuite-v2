@@ -3,16 +3,18 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from django.shortcuts import get_object_or_404
 from django.db.models import Count, Q
+from django.db import connection, transaction
+from django.core.management import call_command
+from django.apps import apps
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.decorators import api_view
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.response import Response
-from django.db import connection
-from .models import UnlistedEndpoints, SubdomainDiscovery, DocumentationEndpoint
-from .serializers import EndpointDiscoverySerializer, UnlistedEndpointsSerializer, ScanRequestSerializer, SubdomainDiscoverySerializer, DocumentationScanSerializer, DocumentationEndpointSerializer
-from .services import SubdomainDiscoveryService, run_documentation_scan
+from .models import UnlistedEndpoints, SubdomainDiscovery, DocumentationEndpoint, VulnerableMethodScan, APIVersionCheck
+from .serializers import EndpointDiscoverySerializer, UnlistedEndpointsSerializer, ScanRequestSerializer, SubdomainDiscoverySerializer, DocumentationScanSerializer, DocumentationEndpointSerializer, ScanRequestSerializer, VulnerableMethodScanSerializer, VersionCheckRequestSerializer, VersionCheckResponseSerializer
+from .services import SubdomainDiscoveryService, run_documentation_scan, APIVersionEnumerator
 from .utils.prompts import EndpointDiscoveryService
 from .tasks import async_subdomain_discovery, scan_documentation_task
 from AIToolSuite_prod.celery import app
@@ -372,3 +374,193 @@ class GetScanSummaryView(APIView):
             "status_breakdown": status_breakdown,
             "latest_scan": endpoints.first().scan_timestamp if endpoints.exists() else None
         })
+
+
+class VulnerableMethodsScanView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        """
+        Initiate a scan for vulnerable HTTP methods based on scan_id
+        """
+        serializer = ScanRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                {'error': 'Invalid request data', 'details': serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        scan_id = serializer.validated_data['scan_id']
+        
+        try:
+            # Call the management command to perform the scan
+            call_command('scan_vulnerable_methods', scan_id=scan_id)
+            
+            # Get the scan results
+            scan_results = VulnerableMethodScan.objects.filter(scan_id=scan_id)
+            results_serializer = VulnerableMethodScanSerializer(scan_results, many=True)
+            
+            return Response({
+                'message': 'Scan completed successfully',
+                'scan_id': scan_id,
+                'total_vulnerabilities_found': scan_results.count(),
+                'results': results_serializer.data
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Error during scan for scan_id {scan_id}: {str(e)}")
+            return Response(
+                {'error': 'Scan failed', 'details': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class ScanResultsView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, scan_id):
+        """
+        Get scan results for a specific scan_id
+        """
+        try:
+            scan_results = VulnerableMethodScan.objects.filter(scan_id=scan_id)
+            if not scan_results.exists():
+                return Response(
+                    {'error': f'No scan results found for scan_id: {scan_id}'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            serializer = VulnerableMethodScanSerializer(scan_results, many=True)
+            return Response({
+                'scan_id': scan_id,
+                'total_vulnerabilities': scan_results.count(),
+                'results': serializer.data
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Error retrieving scan results for {scan_id}: {str(e)}")
+            return Response(
+                {'error': 'Failed to retrieve scan results', 'details': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class APIVersionEnumerationView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        serializer = VersionCheckRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        scan_id = serializer.validated_data['scan_id']
+        use_openai = serializer.validated_data.get('use_openai', False)
+        
+        try:
+            # Get the api_orch_postmanapi model dynamically
+            PostmanAPI = apps.get_model('api_orch', 'postmanapi')
+            
+            # Fetch APIs for the given scan_id
+            apis = PostmanAPI.objects.filter(scan_id=scan_id)
+            
+            if not apis.exists():
+                return Response(
+                    {'error': f'No APIs found for scan_id: {scan_id}'}, 
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # Extract API URLs (adjust field name based on your model)
+            api_urls = []
+            for api in apis:
+                # Assuming the model has a 'url' field - adjust as needed
+                if hasattr(api, 'url') and api.url:
+                    api_urls.append(api.url)
+                elif hasattr(api, 'endpoint') and api.endpoint:
+                    api_urls.append(api.endpoint)
+                elif hasattr(api, 'api_url') and api.api_url:
+                    api_urls.append(api.api_url)
+            
+            if not api_urls:
+                return Response(
+                    {'error': 'No valid API URLs found in the database'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Initialize version enumerator
+            enumerator = APIVersionEnumerator(use_openai=use_openai)
+            
+            # Run async version enumeration
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                version_results = loop.run_until_complete(
+                    enumerator.enumerate_versions_async(api_urls)
+                )
+            finally:
+                loop.close()
+            
+            # Save results to database
+            saved_results = []
+            for result in version_results:
+                version_check, created = APIVersionCheck.objects.update_or_create(
+                    scan_id=scan_id,
+                    original_api_url=result['original_api_url'],
+                    version=result['version'],
+                    defaults={
+                        'is_accessible': result['is_accessible'],
+                        'response_status_code': result['response_status_code'],
+                        'response_time': result['response_time'],
+                        'error_message': result['error_message']
+                    }
+                )
+                saved_results.append(version_check)
+            
+            # Prepare response
+            accessible_count = sum(1 for r in saved_results if r.is_accessible)
+            response_data = {
+                'scan_id': scan_id,
+                'total_apis_checked': len(api_urls),
+                'total_versions_found': len(saved_results),
+                'accessible_versions': accessible_count,
+                'results': saved_results
+            }
+            
+            response_serializer = VersionCheckResponseSerializer(response_data)
+            return Response(response_serializer.data, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response(
+                {'error': f'An error occurred: {str(e)}'}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+class APIVersionResultsView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, scan_id):
+        """Get previous version enumeration results for a scan_id"""
+        results = APIVersionCheck.objects.filter(scan_id=scan_id).order_by('-checked_at')
+        
+        if not results.exists():
+            return Response(
+                {'error': f'No version check results found for scan_id: {scan_id}'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        accessible_count = results.filter(is_accessible=True).count()
+        unique_apis = results.values('original_api_url').distinct().count()
+        
+        response_data = {
+            'scan_id': scan_id,
+            'total_apis_checked': unique_apis,
+            'total_versions_found': results.count(),
+            'accessible_versions': accessible_count,
+            'results': results
+        }
+        
+        serializer = VersionCheckResponseSerializer(response_data)
+        return Response(serializer.data, status=status.HTTP_200_OK)
