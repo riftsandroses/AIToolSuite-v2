@@ -1,5 +1,6 @@
-# celery.py (in your project directory)
+# celery.py
 from __future__ import absolute_import, unicode_literals
+from django.conf import settings
 import os
 from celery import Celery
 
@@ -12,13 +13,9 @@ app = Celery('AIToolSuite_prod')
 # the configuration object to child processes
 app.config_from_object('django.conf:settings', namespace='CELERY')
 
-# Load task modules from all registered Django app configs
+# Load task modules from all registered Django apps
 app.autodiscover_tasks()
 
-# Configure periodic tasks
-app.conf.beat_schedule = {
-    'cleanup-expired-containers': {
-        'task': 'aitm.tasks.cleanup_expired_containers',
-        'schedule': 3600.0,  # Run every hour
-    },
-}
+@app.task(bind=True)
+def debug_task(self):
+    print(f'Request: {self.request!r}')

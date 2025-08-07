@@ -1,13 +1,20 @@
 # api_9/views.py
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
 from rest_framework.views import APIView
+from rest_framework.decorators import api_view
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.response import Response
 from django.db import connection
-from .models import UnlistedEndpoints
-from .serializers import EndpointDiscoverySerializer, UnlistedEndpointsSerializer
+from .models import UnlistedEndpoints, SubdomainDiscovery
+from .serializers import EndpointDiscoverySerializer, UnlistedEndpointsSerializer, ScanRequestSerializer, SubdomainDiscoverySerializer
+from .services import SubdomainDiscoveryService
 from .utils.prompts import EndpointDiscoveryService
+from .tasks import async_subdomain_discovery
+from AIToolSuite_prod.celery import app
+from celery.result import AsyncResult
 import logging
 
 logger = logging.getLogger(__name__)
@@ -145,3 +152,97 @@ class DiscoverEndpointsView(APIView):
         except Exception as e:
             logger.error(f"Error fetching JWT token: {e}")
             return None
+
+@method_decorator(csrf_exempt, name='dispatch')
+class SubdomainDiscoveryAPIView(APIView):
+    """
+    API endpoint to discover subdomains for a given scan_id
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        serializer = ScanRequestSerializer(data=request.data)
+        
+        if not serializer.is_valid():
+            return Response(
+                {'error': 'Invalid input', 'details': serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        scan_id = serializer.validated_data['scan_id']
+        
+        try:
+            # Start async task
+            task = async_subdomain_discovery.delay(scan_id)
+            
+            return Response({
+                'message': 'Subdomain discovery started',
+                'task_id': task.id,
+                'scan_id': scan_id,
+                'status': 'processing'
+            }, status=status.HTTP_202_ACCEPTED)
+            
+        except Exception as e:
+            return Response(
+                {'error': f'Internal server error: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    def get(self, request):
+        """Get discovered subdomains for a scan_id"""
+        scan_id = request.query_params.get('scan_id')
+        
+        if not scan_id:
+            return Response(
+                {'error': 'scan_id parameter is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        subdomains = SubdomainDiscovery.objects.filter(scan_id=scan_id)
+        serializer = SubdomainDiscoverySerializer(subdomains, many=True)
+        
+        return Response({
+            'scan_id': scan_id,
+            'count': subdomains.count(),
+            'subdomains': serializer.data
+        })
+
+class TaskStatusView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, task_id):
+        try:
+            # Force AsyncResult to use Django DB backend
+            task_result = AsyncResult(task_id, app=app)
+            
+            if not task_result.backend:
+                return Response(
+                    {"error": "Task result backend is not configured"},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
+
+            response_data = {
+                "task_id": task_id,
+                "status": task_result.state,
+            }
+
+            if task_result.state == "PROGRESS":
+                response_data.update({
+                    "current": task_result.info.get("current", 0),
+                    "total": task_result.info.get("total", 1),
+                    "message": task_result.info.get("message", ""),
+                })
+            elif task_result.state == "SUCCESS":
+                response_data["result"] = task_result.result
+            elif task_result.state == "FAILURE":
+                response_data["error"] = str(task_result.info)
+
+            return Response(response_data)
+
+        except Exception as e:
+            return Response(
+                {"error": f"Error checking task status: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )

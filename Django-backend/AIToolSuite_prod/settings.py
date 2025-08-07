@@ -252,6 +252,16 @@ LOGGING = {
             'level': 'INFO',
             'propagate': True,
         },
+        'api_9.services': {
+            'handlers': ['file', 'console'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+        'api_9.tasks': {
+            'handlers': ['file', 'console'],
+            'level': 'INFO',
+            'propagate': True,
+        },
     },
 }
 
@@ -262,6 +272,15 @@ LOGGING = {
 # For RabbitMQ
 CELERY_BROKER_URL = 'amqp://guest:guest@localhost:5672//'
 CELERY_RESULT_BACKEND = 'django-db'
+CELERY_CACHE_BACKEND = 'django-cache'
+CELERY_RESULT_EXTENDED = True
+
+# Task result settings
+CELERY_RESULT_EXPIRES = 3600
+CELERY_TASK_TRACK_STARTED = True
+CELERY_TASK_SEND_SENT_EVENT = True
+CELERY_SEND_EVENTS = True
+CELERY_RESULT_PERSISTENT = True
 
 # Celery settings
 CELERY_ACCEPT_CONTENT = ['json']
@@ -272,6 +291,10 @@ CELERY_BEAT_SCHEDULE = {
     'refresh-scan-tokens': {
         'task': 'api_orch.tasks.refresh_scan_tokens',
         'schedule': crontab(minute='*/10'),  # Run every 10 minutes
+    },
+    'cleanup-expired-containers': {
+        'task': 'aitm.tasks.cleanup_expired_containers',
+        'schedule': 3600.0,
     },
 }
 CELERYD_FORCE_EXECV = True
