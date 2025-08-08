@@ -59,6 +59,7 @@ INSTALLED_APPS = [
     'risk_assessment',
     'connector',
     'api_orch',
+    'api_7',
     'api_9',
     'api_custom_testing'
 ]
