@@ -12,10 +12,10 @@ from rest_framework.decorators import api_view
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.response import Response
-from .models import UnlistedEndpoints, SubdomainDiscovery, DocumentationEndpoint, VulnerableMethodScan, APIVersionCheck
-from .serializers import EndpointDiscoverySerializer, UnlistedEndpointsSerializer, ScanRequestSerializer, SubdomainDiscoverySerializer, DocumentationScanSerializer, DocumentationEndpointSerializer, ScanRequestSerializer, VulnerableMethodScanSerializer, VersionCheckRequestSerializer, VersionCheckResponseSerializer
-from .services import SubdomainDiscoveryService, run_documentation_scan, APIVersionEnumerator
-from .utils.prompts import EndpointDiscoveryService
+from .models import UnlistedEndpoints, SubdomainDiscovery, DocumentationEndpoint, VulnerableMethodScan, APIVersionCheck, EndpointCheckResult
+from .serializers import EndpointDiscoverySerializer, UnlistedEndpointsSerializer, ScanRequestSerializer, SubdomainDiscoverySerializer, DocumentationScanSerializer, DocumentationEndpointSerializer, ScanRequestSerializer, VulnerableMethodScanSerializer, VersionCheckRequestSerializer, VersionCheckResponseSerializer, EndpointCheckSerializer, EndpointCheckResultSerializer
+from .services import SubdomainDiscoveryService, run_documentation_scan, APIVersionEnumerator, TC6EndpointDiscoveryService
+from .utils.prompts import TC1EndpointDiscoveryService
 from .tasks import async_subdomain_discovery, scan_documentation_task
 from AIToolSuite_prod.celery import app
 from celery.result import AsyncResult
@@ -58,7 +58,7 @@ class DiscoverEndpointsView(APIView):
                 )
             
             # Initialize discovery service
-            discovery_service = EndpointDiscoveryService()
+            discovery_service = TC1EndpointDiscoveryService()
             
             all_discovered_endpoints = []
             existing_urls = set(urls)  # Convert to set for faster lookup
@@ -564,3 +564,108 @@ class APIVersionResultsView(APIView):
         
         serializer = VersionCheckResponseSerializer(response_data)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+class EndpointDiscoveryView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        serializer = EndpointCheckSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        scan_id = serializer.validated_data['scan_id']
+        
+        try:
+            # Initialize the discovery service
+            discovery_service = TC6EndpointDiscoveryService()
+            
+            # Clear previous results for this scan_id
+            EndpointCheckResult.objects.filter(scan_id=scan_id).delete()
+            
+            # Discover and check endpoints
+            results = discovery_service.discover_and_check_endpoints(scan_id)
+            
+            if not results:
+                return Response({
+                    'message': f'No APIs found for scan_id: {scan_id}',
+                    'scan_id': scan_id,
+                    'total_checks': 0,
+                    'accessible_endpoints': 0
+                }, status=status.HTTP_404_NOT_FOUND)
+            
+            # Save results to database
+            with transaction.atomic():
+                endpoint_objects = []
+                for result in results:
+                    endpoint_objects.append(EndpointCheckResult(**result))
+                EndpointCheckResult.objects.bulk_create(endpoint_objects)
+            
+            # Prepare summary
+            total_checks = len(results)
+            accessible_count = sum(1 for r in results if r['is_accessible'])
+            
+            # Group results by endpoint type
+            summary_by_type = {}
+            for result in results:
+                endpoint_type = result['endpoint_type']
+                if endpoint_type not in summary_by_type:
+                    summary_by_type[endpoint_type] = {
+                        'total': 0,
+                        'accessible': 0,
+                        'endpoints': []
+                    }
+                summary_by_type[endpoint_type]['total'] += 1
+                if result['is_accessible']:
+                    summary_by_type[endpoint_type]['accessible'] += 1
+                    summary_by_type[endpoint_type]['endpoints'].append({
+                        'api_name': result['api_name'],
+                        'endpoint_url': result['endpoint_url'],
+                        'status_code': result['status_code'],
+                        'response_time': result['response_time']
+                    })
+            
+            return Response({
+                'message': 'Endpoint discovery completed successfully',
+                'scan_id': scan_id,
+                'total_checks': total_checks,
+                'accessible_endpoints': accessible_count,
+                'summary_by_type': summary_by_type,
+                'detailed_results': EndpointCheckResultSerializer(
+                    EndpointCheckResult.objects.filter(scan_id=scan_id), 
+                    many=True
+                ).data
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Error in endpoint discovery for scan_id {scan_id}: {e}")
+            return Response({
+                'error': 'Internal server error during endpoint discovery',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class EndpointResultsView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, scan_id):
+        """Get previously stored results for a scan_id"""
+        results = EndpointCheckResult.objects.filter(scan_id=scan_id)
+        
+        if not results.exists():
+            return Response({
+                'message': f'No results found for scan_id: {scan_id}'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        serializer = EndpointCheckResultSerializer(results, many=True)
+        
+        # Generate summary
+        total_checks = results.count()
+        accessible_count = results.filter(is_accessible=True).count()
+        
+        return Response({
+            'scan_id': scan_id,
+            'total_checks': total_checks,
+            'accessible_endpoints': accessible_count,
+            'results': serializer.data
+        }, status=status.HTTP_200_OK)

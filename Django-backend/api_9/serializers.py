@@ -1,6 +1,6 @@
 # api_9/serializers.py
 from rest_framework import serializers
-from .models import UnlistedEndpoints, SubdomainDiscovery, DocumentationEndpoint, VulnerableMethodScan, APIVersionCheck
+from .models import UnlistedEndpoints, SubdomainDiscovery, DocumentationEndpoint, VulnerableMethodScan, APIVersionCheck, EndpointCheckResult
 
 
 class EndpointDiscoverySerializer(serializers.Serializer):
@@ -51,3 +51,11 @@ class VersionCheckResponseSerializer(serializers.Serializer):
     total_versions_found = serializers.IntegerField()
     accessible_versions = serializers.IntegerField()
     results = APIVersionCheckSerializer(many=True)
+
+class EndpointCheckSerializer(serializers.Serializer):
+    scan_id = serializers.CharField(max_length=255)
+
+class EndpointCheckResultSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = EndpointCheckResult
+        fields = '__all__'

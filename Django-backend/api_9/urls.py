@@ -1,6 +1,6 @@
 # api_9/urls.py
 from django.urls import path
-from .views import DiscoverEndpointsView, SubdomainDiscoveryAPIView, TaskStatusView, StartDocumentationScanView, GetScanResultsView, GetScanSummaryView, VulnerableMethodsScanView, ScanResultsView, APIVersionEnumerationView, APIVersionResultsView
+from .views import DiscoverEndpointsView, SubdomainDiscoveryAPIView, TaskStatusView, StartDocumentationScanView, GetScanResultsView, GetScanSummaryView, VulnerableMethodsScanView, ScanResultsView, APIVersionEnumerationView, APIVersionResultsView, EndpointDiscoveryView, EndpointResultsView
 
 app_name = 'api_9'
 
@@ -15,4 +15,6 @@ urlpatterns = [
     path('scan/results/<str:scan_id>/', ScanResultsView.as_view(), name='scan-results'),
     path('version-enumeration/', APIVersionEnumerationView.as_view(), name='api-version-enumeration'),
     path('version-results/<str:scan_id>/', APIVersionResultsView.as_view(), name='api-version-results'),
+    path('discover-endpoints-tc6/', EndpointDiscoveryView.as_view(), name='discover-endpoints-tc6'),
+    path('endpoint-results/<str:scan_id>/', EndpointResultsView.as_view(), name='endpoint-results'),
 ]

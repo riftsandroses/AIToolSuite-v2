@@ -1,6 +1,7 @@
 # api_9/models.py
 from django.db import models
 from django.utils import timezone
+from django.contrib.auth.models import User
 
 class UnlistedEndpoints(models.Model):
     scan_id = models.CharField(max_length=100)
@@ -126,3 +127,21 @@ class APIVersionCheck(models.Model):
 
     def __str__(self):
         return f"{self.scan_id} - {self.original_api_url} ({self.version})"
+
+
+class EndpointCheckResult(models.Model):
+    scan_id = models.CharField(max_length=255)
+    api_id = models.CharField(max_length=255)
+    api_name = models.CharField(max_length=255)
+    base_url = models.URLField()
+    endpoint_type = models.CharField(max_length=50)  # debug, monitoring, health
+    endpoint_url = models.URLField()
+    status_code = models.IntegerField()
+    response_time = models.FloatField()  # in seconds
+    is_accessible = models.BooleanField()
+    auth_used = models.BooleanField(default=False)  # Whether JWT auth was used
+    error_message = models.TextField(blank=True, null=True)
+    checked_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = 'endpoint_check_results'

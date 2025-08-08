@@ -11,7 +11,7 @@ import re
 import requests
 import asyncio
 import aiohttp
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Any, Optional
 from asgiref.sync import sync_to_async
 from urllib.parse import urlparse, urljoin
 from django.db import connection, transaction
@@ -684,3 +684,246 @@ class APIVersionEnumerator:
         except Exception as e:
             print(f"OpenAI API error: {e}")
             return []
+
+
+class TC6EndpointDiscoveryService:
+    
+    COMMON_ENDPOINTS = {
+        'health': [
+            '/health',
+            '/health-check',
+            '/healthcheck',
+            '/api/health',
+            '/status',
+            '/ping',
+            '/alive',
+            '/ready'
+        ],
+        'debug': [
+            '/debug',
+            '/api/debug',
+            '/debug/info',
+            '/debug/status',
+            '/__debug__',
+            '/dev/debug',
+            '/admin/debug'
+        ],
+        'monitoring': [
+            '/metrics',
+            '/api/metrics',
+            '/monitoring',
+            '/api/monitoring',
+            '/stats',
+            '/api/stats',
+            '/info',
+            '/api/info',
+            '/actuator/health',
+            '/actuator/info',
+            '/actuator/metrics'
+        ]
+    }
+    
+    def __init__(self):
+        self.session = requests.Session()
+        self.session.timeout = 10
+        # Set a reasonable user agent
+        self.session.headers.update({
+            'User-Agent': 'API-Health-Checker/1.0'
+        })
+        self.access_token = None
+    
+    def get_access_token_by_scan_id(self, scan_id: str) -> Optional[str]:
+        """Fetch access token from api_orch_scantokens table by scan_id"""
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    SELECT access_token 
+                    FROM api_orch_scantokens 
+                    WHERE scan_id = %s
+                    LIMIT 1
+                """, [scan_id])
+                
+                result = cursor.fetchone()
+                if result:
+                    return result[0]
+                else:
+                    logger.warning(f"No access token found for scan_id: {scan_id}")
+                    return None
+        except Exception as e:
+            logger.error(f"Error fetching access token for scan_id {scan_id}: {e}")
+            return None
+    
+    def get_apis_by_scan_id(self, scan_id: str) -> List[Dict[str, Any]]:
+        """Fetch APIs from api_orch_postmanapi table by scan_id"""
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                SELECT id, name, url
+                FROM api_orch_postmanapi 
+                WHERE scan_id = %s
+            """, [scan_id])
+            
+            columns = [col[0] for col in cursor.description]
+            return [dict(zip(columns, row)) for row in cursor.fetchall()]
+    
+    def discover_endpoints_with_ai(self, api_info: Dict[str, Any]) -> List[str]:
+        """Use OpenAI to suggest additional endpoints based on API info"""
+        try:
+            if not hasattr(settings, 'OPENAI_API_KEY') or not settings.OPENAI_API_KEY:
+                return []
+                
+            client = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
+            
+            prompt = f"""
+            Given an API with the following information:
+            Name: {api_info.get('name', 'Unknown')}
+            Base URL: {api_info.get('url', '')}
+            
+            Suggest 5-10 additional common endpoint paths that this API might have for:
+            1. Health checks
+            2. Debug information
+            3. Monitoring/metrics
+            
+            Return only the paths (starting with '/'), one per line, without explanations.
+            Focus on realistic, commonly used endpoints.
+            """
+            
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=200,
+                temperature=0.3
+            )
+            
+            suggested_paths = []
+            for line in response.choices[0].message.content.strip().split('\n'):
+                line = line.strip()
+                if line.startswith('/') and len(line) > 1:
+                    suggested_paths.append(line)
+            
+            return suggested_paths[:10]  # Limit to 10 suggestions
+            
+        except Exception as e:
+            logger.error(f"OpenAI endpoint discovery failed: {e}")
+            return []
+    
+    def categorize_endpoint(self, path: str) -> str:
+        """Categorize endpoint based on path"""
+        path_lower = path.lower()
+        
+        if any(keyword in path_lower for keyword in ['health', 'alive', 'ready', 'ping', 'status']):
+            return 'health'
+        elif any(keyword in path_lower for keyword in ['debug', '__debug__']):
+            return 'debug'
+        elif any(keyword in path_lower for keyword in ['metrics', 'monitoring', 'stats', 'info', 'actuator']):
+            return 'monitoring'
+        else:
+            # Try to guess based on common patterns
+            if 'debug' in path_lower:
+                return 'debug'
+            elif any(keyword in path_lower for keyword in ['metric', 'monitor', 'stat', 'info']):
+                return 'monitoring'
+            else:
+                return 'health'  # default
+    
+    def check_endpoint(self, base_url: str, endpoint_path: str, use_auth: bool = True) -> Dict[str, Any]:
+        """Check if an endpoint is accessible and get response details"""
+        full_url = urljoin(base_url.rstrip('/') + '/', endpoint_path.lstrip('/'))
+        
+        result = {
+            'endpoint_url': full_url,
+            'status_code': None,
+            'response_time': None,
+            'is_accessible': False,
+            'error_message': None,
+            'auth_used': use_auth and self.access_token is not None
+        }
+        
+        # Prepare headers
+        headers = {}
+        if use_auth and self.access_token:
+            headers['Authorization'] = f'Bearer {self.access_token}'
+        
+        try:
+            start_time = time.time()
+            response = self.session.get(full_url, headers=headers, allow_redirects=True)
+            end_time = time.time()
+            
+            result['status_code'] = response.status_code
+            result['response_time'] = end_time - start_time
+            
+            # Consider endpoint accessible if status is not in error range
+            if response.status_code not in [400, 401, 403, 404, 500, 501, 502, 503, 504]:
+                result['is_accessible'] = True
+            else:
+                result['error_message'] = f"HTTP {response.status_code}"
+                
+                # If we got 401 and we used auth, also try without auth
+                if response.status_code == 401 and use_auth and self.access_token:
+                    logger.info(f"Got 401 with auth token, trying without auth for: {full_url}")
+                    fallback_result = self.check_endpoint(base_url, endpoint_path, use_auth=False)
+                    
+                    # If it works without auth, update the result but note the auth issue
+                    if fallback_result['is_accessible']:
+                        result.update(fallback_result)
+                        result['error_message'] = "Accessible without auth (token may be invalid/expired)"
+                        result['auth_used'] = False
+                
+        except requests.exceptions.RequestException as e:
+            result['error_message'] = str(e)
+            result['response_time'] = 0
+            
+        return result
+    
+    def discover_and_check_endpoints(self, scan_id: str) -> List[Dict[str, Any]]:
+        """Main method to discover and check endpoints for all APIs in scan_id"""
+        # First, get the access token for this scan_id
+        self.access_token = self.get_access_token_by_scan_id(scan_id)
+        if self.access_token:
+            logger.info(f"Found access token for scan_id: {scan_id}")
+        else:
+            logger.warning(f"No access token found for scan_id: {scan_id}. Proceeding without authentication.")
+        
+        apis = self.get_apis_by_scan_id(scan_id)
+        all_results = []
+        
+        for api in apis:
+            logger.info(f"Checking API: {api['name']} - {api['url']}")
+            
+            # Collect all endpoints to check
+            endpoints_to_check = []
+            
+            # Add common endpoints
+            for category, paths in self.COMMON_ENDPOINTS.items():
+                for path in paths:
+                    endpoints_to_check.append((path, category))
+            
+            # Add AI-suggested endpoints
+            ai_suggested = self.discover_endpoints_with_ai(api)
+            for path in ai_suggested:
+                category = self.categorize_endpoint(path)
+                endpoints_to_check.append((path, category))
+            
+            # Remove duplicates
+            endpoints_to_check = list(set(endpoints_to_check))
+            
+            # Check each endpoint
+            for endpoint_path, category in endpoints_to_check:
+                check_result = self.check_endpoint(api['url'], endpoint_path)
+                
+                result = {
+                    'scan_id': scan_id,
+                    'api_id': str(api['id']),
+                    'api_name': api['name'],
+                    'base_url': api['url'],
+                    'endpoint_type': category,
+                    **check_result
+                }
+                
+                all_results.append(result)
+                
+                # Log accessible endpoints
+                if result['is_accessible']:
+                    auth_status = "with auth" if result.get('auth_used') else "without auth"
+                    logger.info(f"Found accessible {category} endpoint ({auth_status}): {check_result['endpoint_url']}")
+        
+        return all_results

@@ -9,7 +9,7 @@ from django.conf import settings
 import logging
 logger = logging.getLogger(__name__)
 
-class EndpointDiscoveryService:
+class TC1EndpointDiscoveryService:
     def __init__(self):
         self.openai_client = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
     
