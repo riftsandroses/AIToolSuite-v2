@@ -145,3 +145,22 @@ class EndpointCheckResult(models.Model):
     
     class Meta:
         db_table = 'endpoint_check_results'
+
+
+class AdminPanelScanResult(models.Model):
+    scan_id = models.CharField(max_length=255)
+    api_url = models.URLField()
+    admin_panel_url = models.URLField()
+    is_accessible = models.BooleanField(default=False)
+    status_code = models.IntegerField(null=True, blank=True)
+    response_time = models.FloatField(null=True, blank=True)
+    error_message = models.TextField(blank=True, null=True)
+    admin_panel_type = models.CharField(max_length=100, blank=True, null=True)  # django-admin, wp-admin, etc.
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        unique_together = ['scan_id', 'admin_panel_url']
+        
+    def __str__(self):
+        return f"Scan {self.scan_id} - {self.admin_panel_url} - {'Accessible' if self.is_accessible else 'Not Accessible'}"

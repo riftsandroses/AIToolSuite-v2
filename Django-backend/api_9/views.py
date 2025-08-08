@@ -12,15 +12,17 @@ from rest_framework.decorators import api_view
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.response import Response
-from .models import UnlistedEndpoints, SubdomainDiscovery, DocumentationEndpoint, VulnerableMethodScan, APIVersionCheck, EndpointCheckResult
-from .serializers import EndpointDiscoverySerializer, UnlistedEndpointsSerializer, ScanRequestSerializer, SubdomainDiscoverySerializer, DocumentationScanSerializer, DocumentationEndpointSerializer, ScanRequestSerializer, VulnerableMethodScanSerializer, VersionCheckRequestSerializer, VersionCheckResponseSerializer, EndpointCheckSerializer, EndpointCheckResultSerializer
+from .models import UnlistedEndpoints, SubdomainDiscovery, DocumentationEndpoint, VulnerableMethodScan, APIVersionCheck, EndpointCheckResult, AdminPanelScanResult
+from .serializers import EndpointDiscoverySerializer, UnlistedEndpointsSerializer, ScanRequestSerializer, SubdomainDiscoverySerializer, DocumentationScanSerializer, DocumentationEndpointSerializer, ScanRequestSerializer, VulnerableMethodScanSerializer, VersionCheckRequestSerializer, VersionCheckResponseSerializer, EndpointCheckSerializer, EndpointCheckResultSerializer, AdminPanelScanRequestSerializer, AdminPanelScanResponseSerializer, AdminPanelScanResultSerializer
 from .services import SubdomainDiscoveryService, run_documentation_scan, APIVersionEnumerator, TC6EndpointDiscoveryService
 from .utils.prompts import TC1EndpointDiscoveryService
+from .utils.admin_panel import AdminPanelScanner
 from .tasks import async_subdomain_discovery, scan_documentation_task
 from AIToolSuite_prod.celery import app
 from celery.result import AsyncResult
+import time
 import asyncio
-import logging
+import logging 
 
 
 logger = logging.getLogger(__name__)
@@ -577,7 +579,7 @@ class EndpointDiscoveryView(APIView):
         scan_id = serializer.validated_data['scan_id']
         
         try:
-            # Initialize the discovery service
+            # Initialize the service
             discovery_service = TC6EndpointDiscoveryService()
             
             # Clear previous results for this scan_id
@@ -669,3 +671,122 @@ class EndpointResultsView(APIView):
             'accessible_endpoints': accessible_count,
             'results': serializer.data
         }, status=status.HTTP_200_OK)
+
+class AdminPanelScanView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        """
+        Scan for admin panels based on scan_id
+        """
+        serializer = AdminPanelScanRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            
+        scan_id = serializer.validated_data['scan_id']
+        
+        try:
+            # Get the api_orch_postmanapi model from the api_orch app
+            PostmanAPI = apps.get_model('api_orch', 'postmanapi')
+            
+            # Fetch APIs based on scan_id
+            apis = PostmanAPI.objects.filter(scan_id=scan_id)
+            
+            if not apis.exists():
+                return Response(
+                    {'error': f'No APIs found for scan_id: {scan_id}'}, 
+                    status=status.HTTP_404_NOT_FOUND
+                )
+                
+            # Initialize scanner
+            scanner = AdminPanelScanner(timeout=10, max_workers=5)
+            
+            # Clear previous results for this scan_id
+            AdminPanelScanResult.objects.filter(scan_id=scan_id).delete()
+            
+            start_time = time.time()
+            all_results = []
+            accessible_count = 0
+            
+            for api in apis:
+                api_url = api.url  # Adjust field name as per your model
+                scan_results = scanner.scan_url(api_url)
+                
+                for result in scan_results:
+                    # Save result to database
+                    scan_result, created = AdminPanelScanResult.objects.update_or_create(
+                        scan_id=scan_id,
+                        admin_panel_url=result['url'],
+                        defaults={
+                            'api_url': api_url,
+                            'is_accessible': result['is_accessible'],
+                            'status_code': result['status_code'],
+                            'response_time': result['response_time'],
+                            'admin_panel_type': result['admin_panel_type'],
+                            'error_message': result['error_message']
+                        }
+                    )
+                    
+                    all_results.append(scan_result)
+                    if result['is_accessible']:
+                        accessible_count += 1
+                        
+            scan_duration = time.time() - start_time
+            
+            # Prepare response
+            response_data = {
+                'scan_id': scan_id,
+                'total_apis_checked': apis.count(),
+                'accessible_admin_panels': accessible_count,
+                'inaccessible_admin_panels': len(all_results) - accessible_count,
+                'results': AdminPanelScanResultSerializer(all_results, many=True).data,
+                'scan_duration': scan_duration
+            }
+            
+            response_serializer = AdminPanelScanResponseSerializer(response_data)
+            return Response(response_serializer.data, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Error during admin panel scan: {str(e)}")
+            return Response(
+                {'error': f'Internal server error: {str(e)}'}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class AdminPanelScanResultsView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, scan_id):
+        """
+        Get admin panel scan results for a specific scan_id
+        """
+        try:
+            results = AdminPanelScanResult.objects.filter(scan_id=scan_id)
+            
+            if not results.exists():
+                return Response(
+                    {'error': f'No scan results found for scan_id: {scan_id}'}, 
+                    status=status.HTTP_404_NOT_FOUND
+                )
+                
+            # Filter accessible admin panels if requested
+            only_accessible = request.query_params.get('accessible_only', 'false').lower() == 'true'
+            if only_accessible:
+                results = results.filter(is_accessible=True)
+                
+            serializer = AdminPanelScanResultSerializer(results, many=True)
+            return Response({
+                'scan_id': scan_id,
+                'total_results': results.count(),
+                'results': serializer.data
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Error fetching scan results: {str(e)}")
+            return Response(
+                {'error': f'Internal server error: {str(e)}'}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

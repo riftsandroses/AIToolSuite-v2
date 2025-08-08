@@ -1,6 +1,6 @@
 # api_9/serializers.py
 from rest_framework import serializers
-from .models import UnlistedEndpoints, SubdomainDiscovery, DocumentationEndpoint, VulnerableMethodScan, APIVersionCheck, EndpointCheckResult
+from .models import UnlistedEndpoints, SubdomainDiscovery, DocumentationEndpoint, VulnerableMethodScan, APIVersionCheck, EndpointCheckResult, AdminPanelScanResult
 
 
 class EndpointDiscoverySerializer(serializers.Serializer):
@@ -59,3 +59,19 @@ class EndpointCheckResultSerializer(serializers.ModelSerializer):
     class Meta:
         model = EndpointCheckResult
         fields = '__all__'
+
+class AdminPanelScanRequestSerializer(serializers.Serializer):
+    scan_id = serializers.CharField(max_length=255, required=True)
+
+class AdminPanelScanResultSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AdminPanelScanResult
+        fields = '__all__'
+
+class AdminPanelScanResponseSerializer(serializers.Serializer):
+    scan_id = serializers.CharField()
+    total_apis_checked = serializers.IntegerField()
+    accessible_admin_panels = serializers.IntegerField()
+    inaccessible_admin_panels = serializers.IntegerField()
+    results = AdminPanelScanResultSerializer(many=True)
+    scan_duration = serializers.FloatField()
