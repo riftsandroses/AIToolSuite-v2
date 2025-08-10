@@ -33,13 +33,13 @@ class TestCaseDefinitions:
                 'TC-7': 'Improper Inventory Management'
             },
             'API4:2023': {
-                'TC-1': 'Unrestricted Resource Consumption',
-                'TC-2': 'Broken Authentication',
-                'TC-3': 'Broken Object Property Level Authorization',
-                'TC-4': 'Unrestricted Access to Sensitive Business Flows',
-                'TC-5': 'Server Side Request Forgery',
-                'TC-6': 'Security Misconfiguration',
-                'TC-7': 'Improper Inventory Management'
+                'TC-1': 'Unbounded Pagination',
+                'TC-2': 'No Rate Limiting',
+                'TC-3': 'Unrestricted File Upload',
+                'TC-4': 'Async Task Overload',
+                'TC-5': 'Unthrottled File Download',
+                'TC-6': 'Unbounded Session',
+                'TC-7': 'Email/SMS Flooding'
             },
             'API5:2023': {
                 'TC-1': 'Broken Function Level Authorization',
@@ -60,13 +60,7 @@ class TestCaseDefinitions:
                 'TC-7': 'Security Misconfiguration'
             },
             'API7:2023': {
-                'TC-1': 'Server Side Request Forgery',
-                'TC-2': 'Unrestricted Access to Sensitive Business Flows',
-                'TC-3': 'Broken Function Level Authorization',
-                'TC-4': 'Unrestricted Resource Consumption',
-                'TC-5': 'Broken Authentication',
-                'TC-6': 'Broken Object Property Level Authorization',
-                'TC-7': 'Security Misconfiguration'
+                'TC-1': 'Server Side Request Forgery'
             },
             'API8:2023': {
                 'TC-1': 'Security Misconfiguration',

@@ -59,9 +59,10 @@ INSTALLED_APPS = [
     'risk_assessment',
     'connector',
     'api_orch',
+    'api_custom_testing',
+    'api_4',
     'api_7',
-    'api_9',
-    'api_custom_testing'
+    'api_9'
 ]
 
 MIDDLEWARE = [
@@ -265,6 +266,16 @@ LOGGING = {
             'propagate': True,
         },
         'api_9.tasks': {
+            'handlers': ['file', 'console'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+        'api_4.views': {
+            'handlers': ['file', 'console'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+        'api_4.utils': {
             'handlers': ['file', 'console'],
             'level': 'INFO',
             'propagate': True,
