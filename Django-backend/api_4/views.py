@@ -2,16 +2,23 @@
 from rest_framework.views import APIView
 from rest_framework.generics import ListAPIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
+from rest_framework.pagination import PageNumberPagination
 from rest_framework import permissions, status
 from rest_framework.response import Response
 from django.db import connection
 from django.conf import settings
-from .models import UnboundedPaginationScan
-from .serializers import UnboundedPaginationScanSerializer, UnboundedPaginationResultSerializer
+from django.db.models import Q, Count, Avg
+from django.utils import timezone
+from .models import UnboundedPaginationScan, RateLimitScan, ScanLog
+from .serializers import UnboundedPaginationScanSerializer, UnboundedPaginationResultSerializer, RateLimitScanSerializer, ScanRequestSerializer, ScanStatsSerializer, ScanLogSerializer
 from .utils.analyzer_tester import ChatGPTAnalyzer, VulnerabilityTester
+from .utils.rate_limit_scanner import RateLimitScanner
+from .pagination import StandardResultsSetPagination
 import json
 from typing import List, Dict, Optional
-import logging
+from concurrent.futures import ThreadPoolExecutor
+from threading import Thread
+import logging 
 
 
 logger = logging.getLogger(__name__)
@@ -402,3 +409,209 @@ class ScanStatsView(APIView):
             return Response({
                 'error': f'An error occurred while fetching statistics: {str(e)}'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class RateLimitScanView(APIView):
+    """Main view to initiate rate limiting scans"""
+    
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def post(self, request):
+        """Start a new rate limiting scan"""
+        serializer = ScanRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        scan_data = serializer.validated_data
+        
+        try:
+            # Initialize scanner
+            scanner = RateLimitScanner(
+                scan_id=scan_data['scan_id'],
+                max_requests=scan_data.get('max_requests', 100),
+                delay=scan_data.get('delay_between_requests', 0.1),
+                timeout=scan_data.get('timeout', 30)
+            )
+            
+            # Start scan in background thread
+            def run_scan():
+                try:
+                    results = scanner.scan_all_apis()
+                    logger.info(f"Completed scan for scan_id {scan_data['scan_id']}: {len(results)} APIs scanned")
+                except Exception as e:
+                    logger.error(f"Scan failed for scan_id {scan_data['scan_id']}: {str(e)}")
+            
+            Thread(target=run_scan, daemon=True).start()
+            
+            return Response({
+                'message': f"Rate limiting scan initiated for scan_id {scan_data['scan_id']}",
+                'scan_id': scan_data['scan_id']
+            }, status=status.HTTP_202_ACCEPTED)
+            
+        except ValueError as e:
+            return Response({
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.error(f"Failed to initiate scan: {str(e)}")
+            return Response({
+                'error': 'Failed to initiate scan'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class ScanResultsViewTC2(APIView):
+    """View to retrieve scan results with filtering"""
+    
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    pagination_class = StandardResultsSetPagination
+    
+    def get(self, request):
+        """Get filtered scan results"""
+        queryset = RateLimitScan.objects.all().order_by('-scan_started_at')
+        
+        # Apply filters
+        scan_id = request.query_params.get('scan_id')
+        if scan_id:
+            queryset = queryset.filter(scan_id=scan_id)
+        
+        status_filter = request.query_params.get('status')
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        
+        vulnerable_only = request.query_params.get('vulnerable_only')
+        if vulnerable_only and vulnerable_only.lower() == 'true':
+            queryset = queryset.filter(is_vulnerable=True)
+        
+        severity_filter = request.query_params.get('severity')
+        if severity_filter:
+            queryset = queryset.filter(severity=severity_filter)
+        
+        api_name = request.query_params.get('api_name')
+        if api_name:
+            queryset = queryset.filter(api_name__icontains=api_name)
+        
+        # Pagination
+        paginator = self.pagination_class()
+        page = paginator.paginate_queryset(queryset, request)
+        
+        if page is not None:
+            serializer = RateLimitScanSerializer(page, many=True)
+            return paginator.get_paginated_response(serializer.data)
+        
+        serializer = RateLimitScanSerializer(queryset, many=True)
+        return Response(serializer.data)
+
+class ScanStatsViewTC2(APIView):
+    """View to get scan statistics"""
+    
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get(self, request):
+        """Get comprehensive scan statistics"""
+        
+        # Base queryset with optional scan_id filter
+        queryset = RateLimitScan.objects.all()
+        scan_id = request.query_params.get('scan_id')
+        if scan_id:
+            queryset = queryset.filter(scan_id=scan_id)
+        
+        # Basic stats
+        total_scans = queryset.count()
+        vulnerable_apis = queryset.filter(is_vulnerable=True).count()
+        
+        # Status distribution
+        scans_by_status = dict(
+            queryset.values('status').annotate(count=Count('id')).values_list('status', 'count')
+        )
+        
+        # Severity distribution
+        scans_by_severity = dict(
+            queryset.filter(severity__isnull=False)
+            .values('severity').annotate(count=Count('id'))
+            .values_list('severity', 'count')
+        )
+        
+        # Average response time
+        completed_scans = queryset.filter(status='completed')
+        avg_response_time = 0
+        if completed_scans.exists():
+            total_time = sum([
+                sum(scan.response_times) / len(scan.response_times) if scan.response_times else 0
+                for scan in completed_scans
+            ])
+            avg_response_time = total_time / completed_scans.count() if completed_scans.count() > 0 else 0
+        
+        # Top vulnerable APIs
+        top_vulnerable_apis = list(
+            queryset.filter(is_vulnerable=True)
+            .values('api_name', 'severity', 'api_url')
+            .annotate(scan_count=Count('id'))
+            .order_by('-scan_count', 'severity')[:10]
+        )
+        
+        stats_data = {
+            'total_scans': total_scans,
+            'vulnerable_apis': vulnerable_apis,
+            'scans_by_status': scans_by_status,
+            'scans_by_severity': scans_by_severity,
+            'avg_response_time': avg_response_time,
+            'top_vulnerable_apis': top_vulnerable_apis,
+        }
+        
+        serializer = ScanStatsSerializer(data=stats_data)
+        serializer.is_valid(raise_exception=True)
+        
+        return Response(serializer.validated_data)
+
+class ScanLogsViewTC2(APIView):
+    """View to retrieve detailed scan logs"""
+    
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    pagination_class = StandardResultsSetPagination
+    
+    def get(self, request):
+        """Get filtered scan logs"""
+        queryset = ScanLog.objects.all().select_related('scan')
+        
+        # Apply filters
+        scan_record_id = request.query_params.get('scan_record_id')
+        if scan_record_id:
+            queryset = queryset.filter(scan_id=scan_record_id)
+        
+        scan_id = request.query_params.get('scan_id')
+        if scan_id:
+            queryset = queryset.filter(scan__scan_id=scan_id)
+        
+        level = request.query_params.get('level')
+        if level:
+            queryset = queryset.filter(level=level)
+        
+        # Pagination
+        paginator = self.pagination_class()
+        page = paginator.paginate_queryset(queryset, request)
+        
+        if page is not None:
+            serializer = ScanLogSerializer(page, many=True)
+            return paginator.get_paginated_response(serializer.data)
+        
+        serializer = ScanLogSerializer(queryset, many=True)
+        return Response(serializer.data)
+
+class ScanDetailViewTC2(APIView):
+    """View to get detailed information about a specific scan"""
+    
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get(self, request, scan_record_id):
+        """Get detailed scan information including logs"""
+        try:
+            scan = RateLimitScan.objects.get(id=scan_record_id)
+            serializer = RateLimitScanSerializer(scan)
+            return Response(serializer.data)
+        except RateLimitScan.DoesNotExist:
+            return Response({
+                'error': 'Scan record not found'
+            }, status=status.HTTP_404_NOT_FOUND)

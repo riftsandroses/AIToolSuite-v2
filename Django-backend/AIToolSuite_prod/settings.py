@@ -213,6 +213,13 @@ REST_FRAMEWORK = {
         'rest_framework.renderers.JSONRenderer',  
         'rest_framework.renderers.BrowsableAPIRenderer',  # Enables DRF web UI  
     ),
+
+    'DEFAULT_PERMISSION_CLASSES': (
+        'rest_framework.permissions.IsAuthenticated',
+    ),
+
+    'DEFAULT_PAGINATION_CLASS': 'api_4.pagination.StandardResultsSetPagination',
+    'PAGE_SIZE': 20,
 }
 
 LOGGING = {
@@ -266,6 +273,11 @@ LOGGING = {
             'propagate': True,
         },
         'api_9.tasks': {
+            'handlers': ['file', 'console'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+        'api_4': {
             'handlers': ['file', 'console'],
             'level': 'INFO',
             'propagate': True,
