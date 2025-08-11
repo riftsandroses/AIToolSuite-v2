@@ -367,3 +367,7 @@ FILE_UPLOAD_SCANNER = {
         '.pdf', '.doc', '.docx', '.txt', '.csv'
     ]
 }
+
+# API-4 TC-5 File Download Count & Vulnerability Threshold settings
+FILE_DOWNLOAD_TEST_COUNT = 10
+VULNERABILITY_THRESHOLD = 0.7

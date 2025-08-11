@@ -1,5 +1,6 @@
 from django.urls import path
-from .views import UnboundedPaginationScanView, ScanResultsView, ScanResultsListView, VulnerableAPIsView, ScanStatsView, RateLimitScanView, ScanResultsViewTC2, ScanStatsViewTC2, ScanLogsViewTC2, ScanDetailViewTC2, StartFileUploadScanViewTC3, ScanResultsViewTC3, VulnerableApisViewTC3, ScanStatsViewTC3, FileUploadTestDetailsViewTC3, ScanSessionViewTC3, DeleteScanResultsViewTC3, ExportScanResultsViewTC3, RetestVulnerableApisViewTC3, AsyncProcessTester, TestResultsView, TestStatsView
+from .views import UnboundedPaginationScanView, ScanResultsView, ScanResultsListView, VulnerableAPIsView, ScanStatsView, RateLimitScanView, ScanResultsViewTC2, ScanStatsViewTC2, ScanLogsViewTC2, ScanDetailViewTC2, StartFileUploadScanViewTC3, ScanResultsViewTC3, VulnerableApisViewTC3, ScanStatsViewTC3, FileUploadTestDetailsViewTC3, ScanSessionViewTC3, DeleteScanResultsViewTC3, ExportScanResultsViewTC3, RetestVulnerableApisViewTC3, AsyncProcessTester, TestResultsView, TestStatsView, FileDownloadScanViewTC5, ScanResultsViewTC5, ScanHistoryViewTC5, ScanStatsViewTC5, VulnerabilitiesSummaryView
+
 urlpatterns = [
     # TC-1 Unbounded Pagination
     path('scan-unbounded-pagination/', UnboundedPaginationScanView.as_view(), name='scan_unbounded_pagination'),
@@ -30,4 +31,13 @@ urlpatterns = [
     path('test-async-apis/', AsyncProcessTester.as_view(), name='test-async-apis'),
     path('test-results/', TestResultsView.as_view(), name='test-results'),
     path('test-stats/', TestStatsView.as_view(), name='test-stats'),
+
+    # TC-5 Unthrottled File Downloads
+    path('scan-tc5/', FileDownloadScanViewTC5.as_view(), name='file-download-scan'),
+    path('results-tc5/', ScanResultsViewTC5.as_view(), name='scan-results'),
+    path('results-tc5/<int:scan_id>/', ScanResultsViewTC5.as_view(), name='scan-results-detail'),
+    path('history-tc5/', ScanHistoryViewTC5.as_view(), name='scan-history'),
+    path('stats-tc5/', ScanStatsViewTC5.as_view(), name='scan-stats'),
+    path('stats-tc5/<int:scan_id>/', ScanStatsViewTC5.as_view(), name='scan-stats-detail'),
+    path('vulnerabilities-tc5/summary/', VulnerabilitiesSummaryView.as_view(), name='vulnerabilities-summary'),
 ]

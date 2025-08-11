@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import UnboundedPaginationScan, RateLimitScan, ScanLog, FileUploadScanResult, FileUploadTest, ScanSession, AsyncTestResult
+from .models import UnboundedPaginationScan, RateLimitScan, ScanLog, FileUploadScanResult, FileUploadTest, ScanSession, AsyncTestResult, FileDownloadTest, ScanHistory, ScanStats
 
 class UnboundedPaginationScanSerializer(serializers.Serializer):
     scan_id = serializers.CharField(max_length=255)
@@ -215,3 +215,18 @@ class ScanInputSerializer(serializers.Serializer):
     scan_id = serializers.IntegerField(required=True)
     concurrency = serializers.IntegerField(default=10, min_value=1, max_value=100)
     request_count = serializers.IntegerField(default=10, min_value=1, max_value=1000)
+
+class FileDownloadTestSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FileDownloadTest
+        fields = '__all__'
+
+class ScanHistorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ScanHistory
+        fields = '__all__'
+
+class ScanStatsSerializerTC5(serializers.ModelSerializer):
+    class Meta:
+        model = ScanStats
+        fields = '__all__'

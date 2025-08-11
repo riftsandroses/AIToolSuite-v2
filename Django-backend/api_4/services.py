@@ -7,9 +7,11 @@ import tempfile
 import os
 from django.utils import timezone
 from io import BytesIO
-from django.db import connection
+from django.db import connection, transaction
 from django.conf import settings
-from .models import FileUploadScanResult, FileUploadTest, ScanSession
+from .models import FileUploadScanResult, FileUploadTest, ScanSession, FileDownloadTest, ScanHistory, ScanStats
+from django.db.models import Q, Avg
+from api_orch.models import PostmanAPI, ScanTokens
 
 logger = logging.getLogger(__name__)
 
@@ -429,3 +431,271 @@ class FileUploadVulnerabilityScanner:
         except Exception as e:
             logger.error(f"Request error for {method} {url}: {str(e)}")
             raise
+
+
+class ChatGPTAnalyzer:
+    def __init__(self, api_key):
+        self.api_key = api_key
+        self.base_url = "https://api.openai.com/v1/chat/completions"
+
+    def analyze_api_for_file_download(self, api_data):
+        prompt = f"""
+        Analyze the following API endpoint to determine if it could potentially allow file downloads. 
+        Consider the HTTP method, headers, body structure, and any other relevant information.
+
+        API Data:
+        {json.dumps(api_data, indent=2)}
+
+        Respond ONLY with valid JSON in this format:
+        {{
+            "potential_file_download": true/false,
+            "reason": "string",
+            "suspicious_parameters": ["string"],
+            "recommended_test_approach": "string"
+        }}
+        """
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+
+        payload = {
+            "model": "gpt-4o-mini",
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.7
+        }
+
+        try:
+            response = requests.post(self.base_url, headers=headers, json=payload)
+            response.raise_for_status()
+
+            result = response.json()
+
+            # Validate structure before parsing
+            if not result.get("choices") or not result["choices"][0].get("message", {}).get("content", "").strip():
+                logger.error(f"ChatGPT returned no content. Raw response: {result}")
+                raise ValueError("Empty response from ChatGPT")
+
+            content = result["choices"][0]["message"]["content"].strip()
+
+            try:
+                return json.loads(content)
+            except json.JSONDecodeError:
+                logger.error(f"Invalid JSON from ChatGPT: {content}")
+                raise
+
+        except Exception as e:
+            logger.error(f"ChatGPT analysis failed: {str(e)}")
+            return {
+                "potential_file_download": False,
+                "reason": "Analysis failed",
+                "suspicious_parameters": [],
+                "recommended_test_approach": ""
+            }
+    
+    
+class FileDownloadTester:
+    def __init__(self, scan_id):
+        self.scan_id = scan_id
+        self.temp_dir = tempfile.gettempdir()
+        
+    def get_access_token(self):
+        try:
+            token = ScanTokens.objects.filter(scan_id=self.scan_id).first()
+            return token.access_token if token else None
+        except Exception as e:
+            logger.error(f"Failed to get access token for scan {self.scan_id}: {str(e)}")
+            return None
+    
+    def test_file_download(self, api, analysis_result):
+        access_token = self.get_access_token()
+        if not access_token:
+            return False, 0
+        
+        test_count = getattr(settings, 'FILE_DOWNLOAD_TEST_COUNT', 10)  # Number of times to test the download
+        success_count = 0
+        
+        headers = json.loads(api.headers)
+        headers['Authorization'] = f"Bearer {access_token}"
+        
+        # Prepare request parameters
+        params = json.loads(api.query_params) if api.query_params else {}
+        body = json.loads(api.body) if api.body else {}
+        
+        for i in range(test_count):
+            try:
+                # Create a temporary file path
+                temp_file_path = os.path.join(self.temp_dir, f"download_test_{api.id}_{i}.tmp")
+                
+                if api.method.upper() == 'GET':
+                    response = requests.get(
+                        api.url,
+                        headers=headers,
+                        params=params,
+                        stream=True
+                    )
+                else:
+                    response = requests.request(
+                        api.method,
+                        api.url,
+                        headers=headers,
+                        params=params,
+                        json=body,
+                        stream=True
+                    )
+                
+                # Check if response looks like a file download
+                if response.status_code == 200:
+                    content_type = response.headers.get('Content-Type', '')
+                    content_length = int(response.headers.get('Content-Length', 0))
+                    
+                    # Save the file temporarily
+                    with open(temp_file_path, 'wb') as f:
+                        for chunk in response.iter_content(chunk_size=8192):
+                            if chunk:
+                                f.write(chunk)
+                    
+                    # Check if file has content
+                    if os.path.getsize(temp_file_path) > 0:
+                        success_count += 1
+                    
+                    # Clean up
+                    os.remove(temp_file_path)
+                
+            except Exception as e:
+                logger.error(f"File download test failed for API {api.id}: {str(e)}")
+            finally:
+                if os.path.exists(temp_file_path):
+                    try:
+                        os.remove(temp_file_path)
+                    except:
+                        pass
+        
+        success_rate = success_count / test_count if test_count > 0 else 0
+        threshold = getattr(settings, 'VULNERABILITY_THRESHOLD', 0.7)
+        is_vulnerable = success_rate > threshold  # Consider vulnerable if >70% success rate
+        
+        return is_vulnerable, success_rate
+
+class ScanOrchestrator:
+    def __init__(self, scan_id, chatgpt_key):
+        self.scan_id = scan_id
+        self.chatgpt_analyzer = ChatGPTAnalyzer(chatgpt_key)
+        self.file_tester = FileDownloadTester(scan_id)
+        self.history = None
+        
+    def initialize_scan(self):
+        self.history = ScanHistory.objects.create(
+            scan_id=self.scan_id,
+            status='running'
+        )
+        return self.history
+    
+    def complete_scan(self):
+        if self.history:
+            self.history.status = 'completed'
+            self.history.completed_at = timezone.now()
+            self.history.save()
+            
+            # Update stats
+            vulnerable_count = FileDownloadTest.objects.filter(
+                scan_id=self.scan_id,
+                is_vulnerable=True
+            ).count()
+            
+            total_tests = FileDownloadTest.objects.filter(
+                scan_id=self.scan_id
+            ).count()
+            
+            avg_success = FileDownloadTest.objects.filter(
+                scan_id=self.scan_id
+            ).aggregate(avg_success=Avg('success_rate'))['avg_success'] or 0
+            
+            ScanStats.objects.create(
+                scan_id=self.scan_id,
+                total_tests=total_tests,
+                total_vulnerabilities=vulnerable_count,
+                avg_success_rate=avg_success
+            )
+    
+    def log_message(self, message):
+        if self.history:
+            self.history.logs += f"{timezone.now().isoformat()} - {message}\n"
+            self.history.save()
+        logger.info(f"Scan {self.scan_id}: {message}")
+    
+    def run_scan(self):
+        try:
+            self.initialize_scan()
+            self.log_message("Scan started")
+            
+            # Get all APIs for this scan_id
+            apis = PostmanAPI.objects.filter(scan_id=self.scan_id)
+            self.history.total_apis = apis.count()
+            self.history.save()
+            
+            vulnerable_count = 0
+            
+            for api in apis:
+                try:
+                    self.log_message(f"Processing API {api.id} - {api.name}")
+                    
+                    # Prepare API data for ChatGPT
+                    api_data = {
+                        "name": api.name,
+                        "method": api.method,
+                        "url": api.url,
+                        "headers": json.loads(api.headers) if isinstance(api.headers, str) and api.headers else (api.headers or {}),
+                        "body": json.loads(api.body) if isinstance(api.body, str) and api.body else (api.body or {}),
+                        "query_params": json.loads(api.query_params) if isinstance(api.query_params, str) and api.query_params else (api.query_params or {}),
+                        "authorization": json.loads(api.authorization) if isinstance(api.authorization, str) and api.authorization else (api.authorization or {})
+                    }
+                    
+                    # Analyze with ChatGPT
+                    analysis_result = self.chatgpt_analyzer.analyze_api_for_file_download(api_data)
+                    self.log_message(f"Analysis result for API {api.id}: {analysis_result}")
+                    
+                    # Only test if ChatGPT thinks it's possible
+                    if analysis_result.get('potential_file_download', False):
+                        self.log_message(f"Testing file download for API {api.id}")
+                        is_vulnerable, success_rate = self.file_tester.test_file_download(api, analysis_result)
+                        
+                        # Save results
+                        FileDownloadTest.objects.create(
+                            scan_id=self.scan_id,
+                            api_id=api.id,
+                            api_name=api.name,
+                            url=api.url,
+                            is_vulnerable=is_vulnerable,
+                            success_rate=success_rate,
+                            test_count=10,
+                            success_count=int(success_rate * 10),
+                            details={
+                                "analysis": analysis_result,
+                                "request": api_data
+                            }
+                        )
+                        
+                        if is_vulnerable:
+                            vulnerable_count += 1
+                            self.log_message(f"Vulnerability found in API {api.id} with success rate {success_rate}")
+                    
+                    self.history.tested_apis += 1
+                    self.history.vulnerable_apis = vulnerable_count
+                    self.history.save()
+                    
+                except Exception as e:
+                    self.log_message(f"Error processing API {api.id}: {str(e)}")
+                    continue
+            
+            self.log_message(f"Scan completed. Found {vulnerable_count} vulnerable APIs")
+            self.complete_scan()
+            return True
+            
+        except Exception as e:
+            self.log_message(f"Scan failed: {str(e)}")
+            if self.history:
+                self.history.status = 'failed'
+                self.history.save()
+            return False

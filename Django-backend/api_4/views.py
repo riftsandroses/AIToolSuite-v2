@@ -9,13 +9,14 @@ from django.db import connection, models
 from django.http import HttpResponse
 from django.conf import settings
 from django.db.models import Q, Count, Avg
+from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
-from .models import UnboundedPaginationScan, RateLimitScan, ScanLog, FileUploadScanResult, FileUploadTest, ScanSession, AsyncTestResult
-from .serializers import UnboundedPaginationScanSerializer, UnboundedPaginationResultSerializer, RateLimitScanSerializer, ScanRequestSerializer, ScanStatsSerializer, ScanLogSerializer, FileUploadScanResultSerializer, ScanSessionSerializer, FileUploadTestSerializer, ScanStatsSerializerTC3, ScanInputSerializer, AsyncTestResultSerializer
+from .models import UnboundedPaginationScan, RateLimitScan, ScanLog, FileUploadScanResult, FileUploadTest, ScanSession, AsyncTestResult, FileDownloadTest, ScanHistory, ScanStats
+from .serializers import UnboundedPaginationScanSerializer, UnboundedPaginationResultSerializer, RateLimitScanSerializer, ScanRequestSerializer, ScanStatsSerializer, ScanLogSerializer, FileUploadScanResultSerializer, ScanSessionSerializer, FileUploadTestSerializer, ScanStatsSerializerTC3, ScanInputSerializer, AsyncTestResultSerializer, FileDownloadTestSerializer, ScanHistorySerializer, ScanStatsSerializerTC5
 from .utils.analyzer_tester import ChatGPTAnalyzer, VulnerabilityTester
 from .utils.rate_limit_scanner import RateLimitScanner
 from .pagination import StandardResultsSetPagination
-from .services import FileUploadVulnerabilityScanner
+from .services import FileUploadVulnerabilityScanner, ScanOrchestrator
 from api_4.management.commands.generate_report import Command as ReportCommand
 import json
 from typing import List, Dict, Optional
@@ -574,7 +575,7 @@ class ScanStatsViewTC2(APIView):
             'top_vulnerable_apis': top_vulnerable_apis,
         }
         
-        serializer = ScanStatsSerializer(data=stats_data)
+        serializer = ScanStatsSerializerTC(data=stats_data)
         serializer.is_valid(raise_exception=True)
         
         return Response(serializer.validated_data)
@@ -1432,3 +1433,145 @@ class TestStatsView(APIView):
             "slow_apis": slow_apis_data,
             "common_errors": list(errors)
         })
+
+
+class FileDownloadScanViewTC5(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        scan_id = request.data.get('scan_id')
+        if not scan_id:
+            return Response(
+                {"error": "scan_id is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            # Check if scan already exists
+            if ScanHistory.objects.filter(scan_id=scan_id).exists():
+                return Response(
+                    {"error": f"Scan {scan_id} already exists"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Start the scan
+            orchestrator = ScanOrchestrator(scan_id, settings.OPENAI_API_KEY)
+            success = orchestrator.run_scan()
+            
+            if success:
+                return Response(
+                    {"message": f"Scan {scan_id} started successfully"},
+                    status=status.HTTP_202_ACCEPTED
+                )
+            else:
+                return Response(
+                    {"error": f"Scan {scan_id} failed to start"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+                
+        except Exception as e:
+            logger.error(f"Error starting scan {scan_id}: {str(e)}")
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+class ScanResultsViewTC5(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, scan_id=None):
+        try:
+            if scan_id:
+                # Get specific scan results
+                tests = FileDownloadTest.objects.filter(scan_id=scan_id)
+                serializer = FileDownloadTestSerializer(tests, many=True)
+                return Response(serializer.data)
+            else:
+                # Get all scan results (paginated in real implementation)
+                tests = FileDownloadTest.objects.all().order_by('-created_at')
+                serializer = FileDownloadTestSerializer(tests, many=True)
+                return Response(serializer.data)
+        except Exception as e:
+            logger.error(f"Error retrieving scan results: {str(e)}")
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+class ScanHistoryViewTC5(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        try:
+            history = ScanHistory.objects.all().order_by('-started_at')
+            serializer = ScanHistorySerializer(history, many=True)
+            return Response(serializer.data)
+        except Exception as e:
+            logger.error(f"Error retrieving scan history: {str(e)}")
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+class ScanStatsViewTC5(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, scan_id=None):
+        try:
+            if scan_id:
+                stats = ScanStats.objects.filter(scan_id=scan_id).first()
+                if not stats:
+                    return Response(
+                        {"error": f"Stats not found for scan {scan_id}"},
+                        status=status.HTTP_404_NOT_FOUND
+                    )
+                serializer = ScanStatsSerializerTC5(stats)
+                return Response(serializer.data)
+            else:
+                stats = ScanStats.objects.all().order_by('-created_at')
+                serializer = ScanStatsSerializerTC5(stats, many=True)
+                return Response(serializer.data)
+        except Exception as e:
+            logger.error(f"Error retrieving scan stats: {str(e)}")
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+class VulnerabilitiesSummaryView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        try:
+            # Total vulnerabilities
+            total_vulnerabilities = FileDownloadTest.objects.filter(is_vulnerable=True).count()
+            
+            # Vulnerabilities by scan
+            vulnerabilities_by_scan = ScanStats.objects.values('scan_id').annotate(
+                total_vulnerabilities=models.Sum('total_vulnerabilities')
+            ).order_by('-total_vulnerabilities')
+            
+            # Most common vulnerable APIs
+            common_vulnerable_apis = FileDownloadTest.objects.filter(
+                is_vulnerable=True
+            ).values('api_id', 'api_name', 'url').annotate(
+                count=models.Count('id'),
+                avg_success=models.Avg('success_rate')
+            ).order_by('-count')[:10]
+            
+            return Response({
+                "total_vulnerabilities": total_vulnerabilities,
+                "vulnerabilities_by_scan": list(vulnerabilities_by_scan),
+                "common_vulnerable_apis": list(common_vulnerable_apis)
+            })
+        except Exception as e:
+            logger.error(f"Error retrieving vulnerabilities summary: {str(e)}")
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

@@ -227,3 +227,48 @@ class AsyncTestResult(models.Model):
 
     def __str__(self):
         return f"{self.api_name} - {self.status_code or 'Error'}"
+
+class FileDownloadTest(models.Model):
+    scan_id = models.IntegerField()
+    api_id = models.IntegerField()
+    api_name = models.CharField(max_length=255)
+    url = models.URLField()
+    is_vulnerable = models.BooleanField(default=False)
+    success_rate = models.FloatField(default=0.0)
+    test_count = models.IntegerField(default=0)
+    success_count = models.IntegerField(default=0)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+    details = models.JSONField(default=dict)
+
+    class Meta:
+        db_table = 'api_4_filedownload_tests'
+        indexes = [
+            models.Index(fields=['scan_id']),
+            models.Index(fields=['api_id']),
+            models.Index(fields=['is_vulnerable']),
+        ]
+
+class ScanHistory(models.Model):
+    scan_id = models.IntegerField(unique=True)
+    started_at = models.DateTimeField(default=timezone.now)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    total_apis = models.IntegerField(default=0)
+    tested_apis = models.IntegerField(default=0)
+    vulnerable_apis = models.IntegerField(default=0)
+    status = models.CharField(max_length=20, default='pending')
+    logs = models.TextField(blank=True)
+
+    class Meta:
+        db_table = 'api_4_scan_history'
+
+class ScanStats(models.Model):
+    scan_id = models.IntegerField(unique=True)
+    total_tests = models.IntegerField(default=0)
+    total_vulnerabilities = models.IntegerField(default=0)
+    avg_success_rate = models.FloatField(default=0.0)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'api_4_scan_stats'
