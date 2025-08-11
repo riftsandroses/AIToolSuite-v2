@@ -203,3 +203,27 @@ class ScanSession(models.Model):
         
     def __str__(self):
         return f"Scan Session {self.scan_id} - {self.status}"
+
+class AsyncTestResult(models.Model):
+    scan_id = models.IntegerField()
+    api_name = models.CharField(max_length=255)
+    url = models.URLField()
+    method = models.CharField(max_length=10)
+    status_code = models.IntegerField(null=True, blank=True)
+    response_time = models.FloatField(null=True, blank=True)
+    is_success = models.BooleanField(default=False)
+    error_message = models.TextField(null=True, blank=True)
+    request_details = models.JSONField(default=dict)
+    response_details = models.JSONField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = 'api_4_asynctestresults'
+        indexes = [
+            models.Index(fields=['scan_id']),
+            models.Index(fields=['api_name']),
+            models.Index(fields=['is_success']),
+        ]
+
+    def __str__(self):
+        return f"{self.api_name} - {self.status_code or 'Error'}"

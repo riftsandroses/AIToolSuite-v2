@@ -5,13 +5,13 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.pagination import PageNumberPagination
 from rest_framework import permissions, status
 from rest_framework.response import Response
-from django.db import connection
+from django.db import connection, models
 from django.http import HttpResponse
 from django.conf import settings
 from django.db.models import Q, Count, Avg
 from django.utils import timezone
-from .models import UnboundedPaginationScan, RateLimitScan, ScanLog, FileUploadScanResult, FileUploadTest, ScanSession
-from .serializers import UnboundedPaginationScanSerializer, UnboundedPaginationResultSerializer, RateLimitScanSerializer, ScanRequestSerializer, ScanStatsSerializer, ScanLogSerializer, FileUploadScanResultSerializer, ScanSessionSerializer, FileUploadTestSerializer, ScanStatsSerializerTC3
+from .models import UnboundedPaginationScan, RateLimitScan, ScanLog, FileUploadScanResult, FileUploadTest, ScanSession, AsyncTestResult
+from .serializers import UnboundedPaginationScanSerializer, UnboundedPaginationResultSerializer, RateLimitScanSerializer, ScanRequestSerializer, ScanStatsSerializer, ScanLogSerializer, FileUploadScanResultSerializer, ScanSessionSerializer, FileUploadTestSerializer, ScanStatsSerializerTC3, ScanInputSerializer, AsyncTestResultSerializer
 from .utils.analyzer_tester import ChatGPTAnalyzer, VulnerabilityTester
 from .utils.rate_limit_scanner import RateLimitScanner
 from .pagination import StandardResultsSetPagination
@@ -31,6 +31,9 @@ from django.db import transaction
 from django.db.models import Q, Count
 from django.core.paginator import Paginator
 import logging
+import requests
+import concurrent.futures
+import openai
 
 
 logger = logging.getLogger(__name__)
@@ -1110,3 +1113,322 @@ class RetestVulnerableApisViewTC3(APIView):
                 {'error': f'Failed to start retest: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+class AsyncProcessTester(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.openai_client = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
+    
+    def get_jwt_token(self, scan_id):
+        with connection.cursor() as cursor:
+            cursor.execute(
+            'SELECT "access_token" FROM "api_orch_scantokens" WHERE "scan_id" = %s',
+            [scan_id]
+        )
+            row = cursor.fetchone()
+            return row[0] if row else None
+    
+    def get_apis_to_test(self, scan_id):
+        with connection.cursor() as cursor:
+            cursor.execute(
+                'SELECT "id", "name", "method", "url", "headers", "body", "authorization", "query_params" '
+                'FROM "api_orch_postmanapi" WHERE "scan_id" = %s',
+                [scan_id]
+            )
+            columns = [col[0] for col in cursor.description]
+            return [dict(zip(columns, row)) for row in cursor.fetchall()]
+    
+    def parse_field(self, field_data):
+        """Helper to safely parse JSON fields that might be strings"""
+        if isinstance(field_data, str):
+            try:
+                return json.loads(field_data) if field_data else {}
+            except:
+                return {}
+        return field_data or {}
+    
+    def is_async_api(self, api_details):
+        """
+        Use ChatGPT to determine if the API is likely executing async tasks
+        """
+        # Parse all fields that might contain JSON
+        headers = self.parse_field(api_details.get('headers'))
+        body = self.parse_field(api_details.get('body'))
+        query_params = self.parse_field(api_details.get('query_params'))
+        
+        prompt = f"""
+        Analyze this API endpoint and determine if it's likely executing asynchronous tasks.
+        Consider these factors:
+        - API name and endpoint pattern
+        - HTTP method
+        - Request body content
+        - Query parameters
+        - Common async patterns (queues, background jobs, long polling, etc.)
+        - Typical async use cases (email sending, file processing, data exports, etc.)
+        
+        API Details:
+        Name: {api_details['name']}
+        Method: {api_details['method']}
+        URL: {api_details['url']}
+        Headers: {headers}
+        Body: {body}
+        Query Params: {query_params}
+        
+        Respond ONLY with:
+        - 'YES' if this is very likely an async API (e.g., contains async keywords, patterns)
+        - 'NO' if it's definitely not async 
+        - 'MAYBE' if you're uncertain but there are indicators of async behavior
+        
+        Important: Pay special attention to the request body as it often contains
+        async operation indicators like:
+        - 'callback_url', 'webhook_url', 'async=true'
+        - Task or job-related parameters
+        - Long-running operation indicators
+        """
+        
+        try:
+            response = self.openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": "You are an API architecture expert analyzing APIs for asynchronous behavior. Be thorough in your analysis of all parameters."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.1,
+                max_tokens=10
+            )
+            
+            result = response.choices[0].message.content.strip().upper()
+            logger.info(f"ChatGPT analysis for {api_details['name']}: {result}")
+            return result in ('YES', 'MAYBE')
+            
+        except Exception as e:
+            logger.error(f"Error calling ChatGPT for {api_details['name']}: {str(e)}")
+            return True
+    
+    def filter_async_apis(self, apis):
+        """Filter APIs using ChatGPT to identify likely async endpoints"""
+        async_apis = []
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            future_to_api = {
+                executor.submit(self.is_async_api, api): api 
+                for api in apis
+            }
+            
+            for future in concurrent.futures.as_completed(future_to_api):
+                api = future_to_api[future]
+                try:
+                    if future.result():
+                        async_apis.append(api)
+                        logger.debug(f"Included async API: {api['name']}")
+                    else:
+                        logger.debug(f"Excluded non-async API: {api['name']}")
+                except Exception as e:
+                    logger.error(f"Error analyzing API {api['name']}: {str(e)}")
+                    async_apis.append(api)
+        
+        return async_apis
+    
+    def make_request(self, api, jwt_token, request_count):
+        results = []
+        
+        # Parse all fields that might contain JSON
+        headers = self.parse_field(api.get('headers', {}))
+        body = self.parse_field(api.get('body', {}))
+        query_params = self.parse_field(api.get('query_params', {}))
+        
+        if jwt_token:
+            headers['Authorization'] = f'Bearer {jwt_token}'
+        
+        for _ in range(request_count):
+            try:
+                response = requests.request(
+                    method=api['method'],
+                    url=api['url'],
+                    headers=headers,
+                    params=query_params,
+                    json=body,
+                    timeout=30
+                )
+                
+                result = AsyncTestResult(
+                    scan_id=api.get('scan_id', 0),
+                    api_name=api['name'],
+                    url=api['url'],
+                    method=api['method'],
+                    status_code=response.status_code,
+                    response_time=response.elapsed.total_seconds(),
+                    is_success=response.ok,
+                    request_details={
+                        'headers': headers,
+                        'query_params': query_params,
+                        'body': body
+                    },
+                    response_details={
+                        'headers': dict(response.headers),
+                        'body': response.json() if response.content else None
+                    }
+                )
+                results.append(result)
+                
+            except Exception as e:
+                logger.error(f"Error testing API {api['name']}: {str(e)}")
+                result = AsyncTestResult(
+                    scan_id=api.get('scan_id', 0),
+                    api_name=api['name'],
+                    url=api['url'],
+                    method=api['method'],
+                    error_message=str(e),
+                    request_details={
+                        'headers': headers,
+                        'query_params': query_params,
+                        'body': body
+                    }
+                )
+                results.append(result)
+        
+        return results
+    
+    def post(self, request):
+        serializer = ScanInputSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        scan_id = serializer.validated_data['scan_id']
+        concurrency = serializer.validated_data['concurrency']
+        request_count = serializer.validated_data['request_count']
+        
+        jwt_token = self.get_jwt_token(scan_id)
+        if not jwt_token:
+            return Response(
+                {"error": "No JWT token found for this scan_id"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        apis = self.get_apis_to_test(scan_id)
+        if not apis:
+            return Response(
+                {"error": "No APIs found for this scan_id"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Add scan_id to each API dict
+        for api in apis:
+            api['scan_id'] = scan_id
+        
+        # Filter APIs using ChatGPT analysis (now includes body in analysis)
+        logger.info(f"Starting ChatGPT analysis of {len(apis)} APIs")
+        async_apis = self.filter_async_apis(apis)
+        logger.info(f"Identified {len(async_apis)} likely async APIs")
+        
+        if not async_apis:
+            return Response(
+                {"message": "No APIs identified as executing async tasks"},
+                status=status.HTTP_200_OK
+            )
+        
+        # Proceed with testing only the async APIs
+        all_results = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as executor:
+            futures = []
+            for api in async_apis:
+                futures.append(
+                    executor.submit(
+                        self.make_request,
+                        api,
+                        jwt_token,
+                        request_count
+                    )
+                )
+            
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    results = future.result()
+                    all_results.extend(results)
+                except Exception as e:
+                    logger.error(f"Error in concurrent execution: {str(e)}")
+        
+        # Bulk create results
+        AsyncTestResult.objects.bulk_create(all_results)
+        
+        # Calculate stats
+        total_requests = len(all_results)
+        successful = sum(1 for r in all_results if r.is_success)
+        success_rate = (successful / total_requests) * 100 if total_requests else 0
+        
+        return Response({
+            "message": f"Testing completed for {len(async_apis)} async APIs with {total_requests} total requests",
+            "success_rate": f"{success_rate:.2f}%",
+            "successful_requests": successful,
+            "failed_requests": total_requests - successful,
+            "apis_tested": [{
+                'name': api['name'],
+                'url': api['url'],
+                'method': api['method']
+            } for api in async_apis]
+        }, status=status.HTTP_200_OK)
+
+class TestResultsView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get(self, request):
+        scan_id = request.query_params.get('scan_id')
+        api_name = request.query_params.get('api_name')
+        is_success = request.query_params.get('is_success')
+        
+        queryset = AsyncTestResult.objects.all()
+        
+        if scan_id:
+            queryset = queryset.filter(scan_id=scan_id)
+        if api_name:
+            queryset = queryset.filter(api_name__icontains=api_name)
+        if is_success:
+            queryset = queryset.filter(is_success=is_success.lower() == 'true')
+        
+        serializer = AsyncTestResultSerializer(queryset.order_by('-created_at')[:100], many=True)
+        return Response(serializer.data)
+
+class TestStatsView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get(self, request):
+        scan_id = request.query_params.get('scan_id')
+        
+        if scan_id:
+            queryset = AsyncTestResult.objects.filter(scan_id=scan_id)
+        else:
+            queryset = AsyncTestResult.objects.all()
+        
+        total_requests = queryset.count()
+        successful = queryset.filter(is_success=True).count()
+        success_rate = (successful / total_requests) * 100 if total_requests else 0
+        
+        # Get top 5 slowest APIs
+        slow_apis = queryset.exclude(response_time=None).order_by('-response_time')[:5]
+        slow_apis_data = [
+            {
+                'api_name': api.api_name,
+                'url': api.url,
+                'response_time': api.response_time,
+                'status_code': api.status_code
+            } for api in slow_apis
+        ]
+        
+        # Get error distribution
+        errors = queryset.exclude(error_message=None).values('error_message').annotate(
+            count=models.Count('error_message')
+        ).order_by('-count')[:5]
+        
+        return Response({
+            "total_requests": total_requests,
+            "successful_requests": successful,
+            "success_rate": f"{success_rate:.2f}%",
+            "slow_apis": slow_apis_data,
+            "common_errors": list(errors)
+        })

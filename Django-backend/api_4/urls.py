@@ -1,6 +1,5 @@
 from django.urls import path
-from .views import UnboundedPaginationScanView, ScanResultsView, ScanResultsListView, VulnerableAPIsView, ScanStatsView, RateLimitScanView, ScanResultsViewTC2, ScanStatsViewTC2, ScanLogsViewTC2, ScanDetailViewTC2, StartFileUploadScanViewTC3, ScanResultsViewTC3, VulnerableApisViewTC3, ScanStatsViewTC3, FileUploadTestDetailsViewTC3, ScanSessionViewTC3, DeleteScanResultsViewTC3, ExportScanResultsViewTC3, RetestVulnerableApisViewTC3
-
+from .views import UnboundedPaginationScanView, ScanResultsView, ScanResultsListView, VulnerableAPIsView, ScanStatsView, RateLimitScanView, ScanResultsViewTC2, ScanStatsViewTC2, ScanLogsViewTC2, ScanDetailViewTC2, StartFileUploadScanViewTC3, ScanResultsViewTC3, VulnerableApisViewTC3, ScanStatsViewTC3, FileUploadTestDetailsViewTC3, ScanSessionViewTC3, DeleteScanResultsViewTC3, ExportScanResultsViewTC3, RetestVulnerableApisViewTC3, AsyncProcessTester, TestResultsView, TestStatsView
 urlpatterns = [
     # TC-1 Unbounded Pagination
     path('scan-unbounded-pagination/', UnboundedPaginationScanView.as_view(), name='scan_unbounded_pagination'),
@@ -26,4 +25,9 @@ urlpatterns = [
     path('scan-tc3/delete/', DeleteScanResultsViewTC3.as_view(), name='delete_results'),
     path('scan-tc3/export/', ExportScanResultsViewTC3.as_view(), name='export_results'),
     path('scan-tc3/retest/', RetestVulnerableApisViewTC3.as_view(), name='retest_vulnerable'),
+
+    # TC-4 Async Task Exploits
+    path('test-async-apis/', AsyncProcessTester.as_view(), name='test-async-apis'),
+    path('test-results/', TestResultsView.as_view(), name='test-results'),
+    path('test-stats/', TestStatsView.as_view(), name='test-stats'),
 ]
