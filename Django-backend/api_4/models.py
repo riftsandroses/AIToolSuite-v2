@@ -3,7 +3,6 @@ from django.utils import timezone
 from django.contrib.auth.models import User
 import json
 
-
 class UnboundedPaginationScan(models.Model):
     scan_id = models.CharField(max_length=255)
     api_url = models.TextField()
@@ -106,3 +105,101 @@ class ScanLog(models.Model):
     class Meta:
         db_table = 'api4_scan_logs'
         ordering = ['-timestamp']
+
+class FileUploadScanResult(models.Model):
+    VULNERABILITY_STATUS = [
+        ('safe', 'Safe'),
+        ('vulnerable', 'Vulnerable'),
+        ('suspicious', 'Suspicious'),
+        ('error', 'Error'),
+    ]
+    
+    UPLOAD_TYPE = [
+        ('webshell', 'Webshell Upload'),
+        ('large_file', 'Large File Upload'),
+        ('unrestricted', 'Unrestricted File Type'),
+        ('mixed', 'Multiple Issues'),
+    ]
+    
+    scan_id = models.IntegerField()
+    api_id = models.IntegerField()  # Reference to api_orch_postmanapi.id
+    api_name = models.CharField(max_length=255)
+    api_url = models.URLField(max_length=500)
+    api_method = models.CharField(max_length=10)
+    
+    # Scan results
+    status = models.CharField(max_length=20, choices=VULNERABILITY_STATUS, default='safe')
+    vulnerability_type = models.CharField(max_length=20, choices=UPLOAD_TYPE, null=True, blank=True)
+    
+    # Test results
+    accepts_file_upload = models.BooleanField(default=False)
+    webshell_upload_success = models.BooleanField(default=False)
+    large_file_upload_success = models.BooleanField(default=False)
+    unrestricted_file_types = models.BooleanField(default=False)
+    
+    # Details
+    response_status_code = models.IntegerField(null=True, blank=True)
+    response_headers = models.JSONField(default=dict, blank=True)
+    response_body_snippet = models.TextField(blank=True)
+    error_message = models.TextField(blank=True)
+    
+    # File upload details
+    uploaded_files = models.JSONField(default=list, blank=True)  # List of successfully uploaded files
+    rejected_files = models.JSONField(default=list, blank=True)  # List of rejected files
+    
+    # Timing and metadata
+    scan_duration = models.FloatField(null=True, blank=True)  # in seconds
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'file_upload_scan_results'
+        unique_together = ['scan_id', 'api_id']
+        
+    def __str__(self):
+        return f"Scan {self.scan_id} - API {self.api_name} - {self.status}"
+
+
+class FileUploadTest(models.Model):
+    """Track individual file upload tests"""
+    scan_result = models.ForeignKey(FileUploadScanResult, on_delete=models.CASCADE, related_name='upload_tests')
+    file_name = models.CharField(max_length=255)
+    file_type = models.CharField(max_length=50)
+    file_size = models.BigIntegerField()  # in bytes
+    test_type = models.CharField(max_length=20, choices=FileUploadScanResult.UPLOAD_TYPE)
+    
+    upload_success = models.BooleanField(default=False)
+    response_status = models.IntegerField(null=True, blank=True)
+    response_message = models.TextField(blank=True)
+    upload_location = models.URLField(blank=True)  # Where the file was uploaded if successful
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = 'file_upload_tests'
+
+
+class ScanSession(models.Model):
+    """Track overall scan sessions"""
+    scan_id = models.IntegerField(unique=True)
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    
+    total_apis = models.IntegerField(default=0)
+    completed_apis = models.IntegerField(default=0)
+    vulnerable_apis = models.IntegerField(default=0)
+    
+    status = models.CharField(max_length=20, choices=[
+        ('pending', 'Pending'),
+        ('running', 'Running'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+    ], default='pending')
+    
+    started_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    
+    class Meta:
+        db_table = 'scan_sessions'
+        
+    def __str__(self):
+        return f"Scan Session {self.scan_id} - {self.status}"

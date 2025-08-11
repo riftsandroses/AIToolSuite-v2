@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import UnboundedPaginationScanView, ScanResultsView, ScanResultsListView, VulnerableAPIsView, ScanStatsView, RateLimitScanView, ScanResultsViewTC2, ScanStatsViewTC2, ScanLogsViewTC2, ScanDetailViewTC2
+from .views import UnboundedPaginationScanView, ScanResultsView, ScanResultsListView, VulnerableAPIsView, ScanStatsView, RateLimitScanView, ScanResultsViewTC2, ScanStatsViewTC2, ScanLogsViewTC2, ScanDetailViewTC2, StartFileUploadScanViewTC3, ScanResultsViewTC3, VulnerableApisViewTC3, ScanStatsViewTC3, FileUploadTestDetailsViewTC3, ScanSessionViewTC3, DeleteScanResultsViewTC3, ExportScanResultsViewTC3, RetestVulnerableApisViewTC3
 
 urlpatterns = [
     # TC-1 Unbounded Pagination
@@ -15,4 +15,15 @@ urlpatterns = [
     path('scan-results-tc2/<int:scan_record_id>/', ScanDetailViewTC2.as_view(), name='scan-detail-tc2'),
     path('scan-stats-tc2/', ScanStatsViewTC2.as_view(), name='scan-stats-tc2'),
     path('scan-logs-tc2/', ScanLogsViewTC2.as_view(), name='scan-logs-tc2'),
+
+    # TC-3 Unrestricted File Upload
+    path('scan-tc3/start/', StartFileUploadScanViewTC3.as_view(), name='start_scan'),
+    path('scan-tc3/results/', ScanResultsViewTC3.as_view(), name='scan_results'),
+    path('scan-tc3/vulnerable/', VulnerableApisViewTC3.as_view(), name='vulnerable_apis'),
+    path('scan-tc3/stats/', ScanStatsViewTC3.as_view(), name='scan_stats'),
+    path('scan-tc3/session/', ScanSessionViewTC3.as_view(), name='scan_session'),
+    path('results-tc3/<int:result_id>/details/', FileUploadTestDetailsViewTC3.as_view(), name='test_details'),
+    path('scan-tc3/delete/', DeleteScanResultsViewTC3.as_view(), name='delete_results'),
+    path('scan-tc3/export/', ExportScanResultsViewTC3.as_view(), name='export_results'),
+    path('scan-tc3/retest/', RetestVulnerableApisViewTC3.as_view(), name='retest_vulnerable'),
 ]

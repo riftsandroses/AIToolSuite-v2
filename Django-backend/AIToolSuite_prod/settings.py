@@ -342,3 +342,28 @@ OPENAI_RATE_LIMIT = {
     'requests_per_minute': 60,
     'tokens_per_minute': 40000,
 }
+
+# API-4 TC-3 File upload scanner specific settings
+FILE_UPLOAD_SCANNER = {
+    'MAX_FILE_SIZE': 100 * 1024 * 1024,  # 100MB max test file size
+    'REQUEST_TIMEOUT': 300,  # 5 minutes timeout for requests
+    'MAX_CONCURRENT_SCANS': 3,  # Maximum concurrent scans
+    'WEBSHELL_PATTERNS': [
+        '<?php',
+        '<%@',
+        'System.Diagnostics.Process',
+        'Runtime.getRuntime().exec',
+        'eval(',
+        'exec(',
+        'passthru(',
+        'shell_exec(',
+    ],
+    'DANGEROUS_EXTENSIONS': [
+        '.php', '.jsp', '.aspx', '.asp', '.pl', '.py', '.rb',
+        '.exe', '.bat', '.cmd', '.sh', '.ps1', '.vbs'
+    ],
+    'SAFE_EXTENSIONS': [
+        '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.svg',
+        '.pdf', '.doc', '.docx', '.txt', '.csv'
+    ]
+}

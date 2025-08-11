@@ -6,19 +6,31 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework import permissions, status
 from rest_framework.response import Response
 from django.db import connection
+from django.http import HttpResponse
 from django.conf import settings
 from django.db.models import Q, Count, Avg
 from django.utils import timezone
-from .models import UnboundedPaginationScan, RateLimitScan, ScanLog
-from .serializers import UnboundedPaginationScanSerializer, UnboundedPaginationResultSerializer, RateLimitScanSerializer, ScanRequestSerializer, ScanStatsSerializer, ScanLogSerializer
+from .models import UnboundedPaginationScan, RateLimitScan, ScanLog, FileUploadScanResult, FileUploadTest, ScanSession
+from .serializers import UnboundedPaginationScanSerializer, UnboundedPaginationResultSerializer, RateLimitScanSerializer, ScanRequestSerializer, ScanStatsSerializer, ScanLogSerializer, FileUploadScanResultSerializer, ScanSessionSerializer, FileUploadTestSerializer, ScanStatsSerializerTC3
 from .utils.analyzer_tester import ChatGPTAnalyzer, VulnerabilityTester
 from .utils.rate_limit_scanner import RateLimitScanner
 from .pagination import StandardResultsSetPagination
+from .services import FileUploadVulnerabilityScanner
+from api_4.management.commands.generate_report import Command as ReportCommand
 import json
 from typing import List, Dict, Optional
 from concurrent.futures import ThreadPoolExecutor
+import threading
 from threading import Thread
 import logging 
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status, permissions
+from rest_framework_simplejwt.authentication import JWTAuthentication
+from django.db import transaction
+from django.db.models import Q, Count
+from django.core.paginator import Paginator
+import logging
 
 
 logger = logging.getLogger(__name__)
@@ -615,3 +627,486 @@ class ScanDetailViewTC2(APIView):
             return Response({
                 'error': 'Scan record not found'
             }, status=status.HTTP_404_NOT_FOUND)
+
+
+class StartFileUploadScanViewTC3(APIView):
+    """Start a file upload vulnerability scan for a given scan_id"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def post(self, request):
+        scan_id = request.data.get('scan_id')
+        
+        if not scan_id:
+            logger.warning("Start scan request missing scan_id")
+            return Response(
+                {'error': 'scan_id is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            # Check if scan is already running
+            existing_session = ScanSession.objects.filter(
+                scan_id=scan_id,
+                status__in=['pending', 'running']
+            ).first()
+            
+            if existing_session:
+                return Response(
+                    {'message': 'Scan is already running', 'session_id': existing_session.id},
+                    status=status.HTTP_409_CONFLICT
+                )
+            
+            logger.info(f"Starting file upload vulnerability scan for scan_id: {scan_id} by user: {request.user.username}")
+            
+            # Create scanner instance
+            scanner = FileUploadVulnerabilityScanner(scan_id, request.user)
+            
+            # Start scan in background thread
+            def run_scan():
+                try:
+                    scanner.start_scan()
+                    logger.info(f"File upload vulnerability scan completed for scan_id: {scan_id}")
+                except Exception as e:
+                    logger.error(f"File upload vulnerability scan failed for scan_id: {scan_id}: {str(e)}")
+            
+            scan_thread = threading.Thread(target=run_scan)
+            scan_thread.daemon = True
+            scan_thread.start()
+            
+            return Response(
+                {
+                    'message': 'File upload vulnerability scan started',
+                    'scan_id': scan_id,
+                    'status': 'started'
+                },
+                status=status.HTTP_202_ACCEPTED
+            )
+            
+        except Exception as e:
+            logger.error(f"Error starting scan: {str(e)}")
+            return Response(
+                {'error': f'Failed to start scan: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class ScanResultsViewTC3(APIView):
+    """Get scan results with filtering and pagination"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get(self, request):
+        scan_id = request.query_params.get('scan_id')
+        vulnerability_status = request.query_params.get('status')
+        vulnerability_type = request.query_params.get('type')
+        page = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('page_size', 20))
+        
+        if not scan_id:
+            return Response(
+                {'error': 'scan_id is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            # Build query filters
+            filters = Q(scan_id=scan_id)
+            
+            if vulnerability_status:
+                filters &= Q(status=vulnerability_status)
+            
+            if vulnerability_type:
+                filters &= Q(vulnerability_type=vulnerability_type)
+            
+            # Get filtered results
+            results = FileUploadScanResult.objects.filter(filters).order_by('-created_at')
+            
+            # Paginate results
+            paginator = Paginator(results, page_size)
+            page_obj = paginator.get_page(page)
+            
+            serializer = FileUploadScanResultSerializer(page_obj.object_list, many=True)
+            
+            logger.info(f"Retrieved {len(page_obj.object_list)} scan results for scan_id: {scan_id}")
+            
+            return Response({
+                'results': serializer.data,
+                'pagination': {
+                    'current_page': page,
+                    'total_pages': paginator.num_pages,
+                    'total_results': paginator.count,
+                    'page_size': page_size,
+                    'has_next': page_obj.has_next(),
+                    'has_previous': page_obj.has_previous()
+                }
+            })
+            
+        except Exception as e:
+            logger.error(f"Error retrieving scan results: {str(e)}")
+            return Response(
+                {'error': f'Failed to retrieve results: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class VulnerableApisViewTC3(APIView):
+    """Get only vulnerable APIs from scan results"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get(self, request):
+        scan_id = request.query_params.get('scan_id')
+        
+        if not scan_id:
+            return Response(
+                {'error': 'scan_id is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            vulnerable_results = FileUploadScanResult.objects.filter(
+                scan_id=scan_id,
+                status='vulnerable'
+            ).order_by('-created_at')
+            
+            serializer = FileUploadScanResultSerializer(vulnerable_results, many=True)
+            
+            logger.info(f"Retrieved {len(vulnerable_results)} vulnerable APIs for scan_id: {scan_id}")
+            
+            return Response({
+                'vulnerable_apis': serializer.data,
+                'count': len(vulnerable_results)
+            })
+            
+        except Exception as e:
+            logger.error(f"Error retrieving vulnerable APIs: {str(e)}")
+            return Response(
+                {'error': f'Failed to retrieve vulnerable APIs: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class ScanStatsViewTC3(APIView):
+    """Get statistics for a scan"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get(self, request):
+        scan_id = request.query_params.get('scan_id')
+        
+        if not scan_id:
+            return Response(
+                {'error': 'scan_id is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            # Get scan session info
+            scan_session = ScanSession.objects.filter(scan_id=scan_id).first()
+            
+            # Get result statistics
+            results = FileUploadScanResult.objects.filter(scan_id=scan_id)
+            
+            stats = {
+                'scan_info': {
+                    'scan_id': scan_id,
+                    'status': scan_session.status if scan_session else 'unknown',
+                    'started_at': scan_session.started_at if scan_session else None,
+                    'completed_at': scan_session.completed_at if scan_session else None,
+                    'total_apis': scan_session.total_apis if scan_session else 0,
+                    'completed_apis': scan_session.completed_apis if scan_session else 0,
+                },
+                'vulnerability_summary': {
+                    'total_tested': results.count(),
+                    'vulnerable': results.filter(status='vulnerable').count(),
+                    'suspicious': results.filter(status='suspicious').count(),
+                    'safe': results.filter(status='safe').count(),
+                    'errors': results.filter(status='error').count(),
+                },
+                'vulnerability_types': {
+                    'webshell_upload': results.filter(vulnerability_type='webshell').count(),
+                    'large_file_upload': results.filter(vulnerability_type='large_file').count(),
+                    'unrestricted_files': results.filter(vulnerability_type='unrestricted').count(),
+                    'multiple_issues': results.filter(vulnerability_type='mixed').count(),
+                },
+                'upload_capabilities': {
+                    'accepts_uploads': results.filter(accepts_file_upload=True).count(),
+                    'webshell_successful': results.filter(webshell_upload_success=True).count(),
+                    'large_file_successful': results.filter(large_file_upload_success=True).count(),
+                    'unrestricted_successful': results.filter(unrestricted_file_types=True).count(),
+                }
+            }
+            
+            logger.info(f"Generated statistics for scan_id: {scan_id}")
+            
+            return Response(stats)
+            
+        except Exception as e:
+            logger.error(f"Error generating scan statistics: {str(e)}")
+            return Response(
+                {'error': f'Failed to generate statistics: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class FileUploadTestDetailsViewTC3(APIView):
+    """Get detailed test results for a specific scan result"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get(self, request, result_id):
+        try:
+            scan_result = FileUploadScanResult.objects.get(id=result_id)
+            upload_tests = FileUploadTest.objects.filter(scan_result=scan_result)
+            
+            result_serializer = FileUploadScanResultSerializer(scan_result)
+            tests_serializer = FileUploadTestSerializer(upload_tests, many=True)
+            
+            logger.info(f"Retrieved detailed test results for scan result: {result_id}")
+            
+            return Response({
+                'scan_result': result_serializer.data,
+                'upload_tests': tests_serializer.data
+            })
+            
+        except FileUploadScanResult.DoesNotExist:
+            return Response(
+                {'error': 'Scan result not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"Error retrieving test details: {str(e)}")
+            return Response(
+                {'error': f'Failed to retrieve test details: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class ScanSessionViewTC3(APIView):
+    """Get scan session information"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get(self, request):
+        scan_id = request.query_params.get('scan_id')
+        
+        if not scan_id:
+            return Response(
+                {'error': 'scan_id is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            scan_session = ScanSession.objects.get(scan_id=scan_id)
+            serializer = ScanSessionSerializer(scan_session)
+            
+            logger.info(f"Retrieved scan session info for scan_id: {scan_id}")
+            
+            return Response(serializer.data)
+            
+        except ScanSession.DoesNotExist:
+            return Response(
+                {'error': 'Scan session not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"Error retrieving scan session: {str(e)}")
+            return Response(
+                {'error': f'Failed to retrieve scan session: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class DeleteScanResultsViewTC3(APIView):
+    """Delete scan results for a specific scan_id"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def delete(self, request):
+        scan_id = request.data.get('scan_id')
+        
+        if not scan_id:
+            return Response(
+                {'error': 'scan_id is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            with transaction.atomic():
+                # Delete all related data
+                deleted_tests = FileUploadTest.objects.filter(scan_result__scan_id=scan_id).count()
+                deleted_results = FileUploadScanResult.objects.filter(scan_id=scan_id).count()
+                deleted_session = ScanSession.objects.filter(scan_id=scan_id).count()
+                
+                FileUploadTest.objects.filter(scan_result__scan_id=scan_id).delete()
+                FileUploadScanResult.objects.filter(scan_id=scan_id).delete()
+                ScanSession.objects.filter(scan_id=scan_id).delete()
+                
+                logger.info(f"Deleted scan data for scan_id: {scan_id} - Results: {deleted_results}, Tests: {deleted_tests}, Session: {deleted_session}")
+                
+                return Response({
+                    'message': f'Successfully deleted scan data for scan_id: {scan_id}',
+                    'deleted_counts': {
+                        'results': deleted_results,
+                        'tests': deleted_tests,
+                        'session': deleted_session
+                    }
+                })
+                
+        except Exception as e:
+            logger.error(f"Error deleting scan results: {str(e)}")
+            return Response(
+                {'error': f'Failed to delete scan results: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+class ExportScanResultsViewTC3(APIView):
+    """Export scan results to JSON, HTML, or TXT format"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        scan_id = request.query_params.get('scan_id')
+        export_format = request.query_params.get('format', 'json').lower()
+        include_safe = request.query_params.get('include_safe', 'false').lower() == 'true'
+
+        if not scan_id:
+            return Response({'error': 'scan_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            scan_session = ScanSession.objects.filter(scan_id=scan_id).first()
+            results = FileUploadScanResult.objects.filter(scan_id=scan_id).prefetch_related('upload_tests')
+
+            if not include_safe:
+                results = results.exclude(status='safe')
+
+            if not results.exists():
+                return Response({'error': 'No results found for given scan_id'}, status=status.HTTP_404_NOT_FOUND)
+
+            report_cmd = ReportCommand()
+
+            # Safely handle missing scan_session
+            report_data = report_cmd._generate_report_data(scan_session, results) if scan_session else {
+                'scan_info': {'scan_id': scan_id, 'status': 'unknown'},
+                'summary': {},
+                'vulnerability_breakdown': {},
+                'vulnerable_apis': [],
+                'recommendations': []
+            }
+
+            if export_format == 'html':
+                output = report_cmd._format_html_report(report_data)
+                return HttpResponse(output, content_type='text/html', headers={
+                    'Content-Disposition': f'attachment; filename="file_upload_scan_{scan_id}.html"'
+                })
+
+            elif export_format == 'txt':
+                output = report_cmd._format_text_report(report_data)
+                return HttpResponse(output, content_type='text/plain', headers={
+                    'Content-Disposition': f'attachment; filename="file_upload_scan_{scan_id}.txt"'
+                })
+
+            else:
+                output = report_cmd._format_json_report(report_data)
+                return HttpResponse(output, content_type='application/json', headers={
+                    'Content-Disposition': f'attachment; filename="file_upload_scan_{scan_id}.json"'
+                })
+
+        except Exception as e:
+            logger.error(f"Error exporting scan results: {str(e)}")
+            return Response({'error': f'Failed to export scan results: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class RetestVulnerableApisViewTC3(APIView):
+    """Retest only the vulnerable APIs from a previous scan"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def post(self, request):
+        original_scan_id = request.data.get('scan_id')
+        new_scan_id = request.data.get('new_scan_id', original_scan_id)
+        
+        if not original_scan_id:
+            return Response(
+                {'error': 'scan_id is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            # Get vulnerable APIs from original scan
+            vulnerable_results = FileUploadScanResult.objects.filter(
+                scan_id=original_scan_id,
+                status='vulnerable'
+            )
+            
+            if not vulnerable_results.exists():
+                return Response(
+                    {'message': 'No vulnerable APIs found in the original scan'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # Create new scan session for retest
+            retest_session = ScanSession.objects.create(
+                scan_id=new_scan_id,
+                user=request.user,
+                status='running',
+                total_apis=vulnerable_results.count()
+            )
+            
+            logger.info(f"Starting retest of {vulnerable_results.count()} vulnerable APIs from scan_id: {original_scan_id}")
+            
+            # Start retest in background
+            def run_retest():
+                try:
+                    scanner = FileUploadVulnerabilityScanner(new_scan_id, request.user)
+                    jwt_token = scanner.get_jwt_token()
+                    
+                    retested_count = 0
+                    for result in vulnerable_results:
+                        # Reconstruct API data for retesting
+                        api_data = {
+                            'id': result.api_id,
+                            'name': result.api_name,
+                            'method': result.api_method,
+                            'url': result.api_url,
+                            'headers': '{}',  # Will need to be fetched from original source
+                            'body': '{}',
+                            'authorization': '{}',
+                            'query_params': '{}'
+                        }
+                        
+                        scanner.scan_api_for_file_upload(api_data, jwt_token)
+                        retested_count += 1
+                        
+                        retest_session.completed_apis = retested_count
+                        retest_session.save()
+                    
+                    retest_session.status = 'completed'
+                    retest_session.completed_at = timezone.now()
+                    retest_session.save()
+                    
+                    logger.info(f"Retest completed for scan_id: {new_scan_id}")
+                    
+                except Exception as e:
+                    logger.error(f"Retest failed: {str(e)}")
+                    retest_session.status = 'failed'
+                    retest_session.save()
+            
+            retest_thread = threading.Thread(target=run_retest)
+            retest_thread.daemon = True
+            retest_thread.start()
+            
+            return Response({
+                'message': 'Retest started for vulnerable APIs',
+                'original_scan_id': original_scan_id,
+                'new_scan_id': new_scan_id,
+                'vulnerable_apis_count': vulnerable_results.count(),
+                'status': 'started'
+            }, status=status.HTTP_202_ACCEPTED)
+            
+        except Exception as e:
+            logger.error(f"Error starting retest: {str(e)}")
+            return Response(
+                {'error': f'Failed to start retest: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
