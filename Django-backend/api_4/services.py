@@ -1024,13 +1024,33 @@ class VulnerabilityScanServiceTC6:
                 raise Exception("Could not generate second access token")
             
             # Step 5: Find an authenticated API for testing
-            authenticated_api = next((api for api in apis if api['id'] != login_api['id'] and 
-                                    'authorization' in str(api).lower()), None)
-            
+            excluded_keywords = ['login', 'signin', 'signup', 'register', 'auth', 'authenticate']
+
+            def is_not_auth_related(api):
+                url_lower = api['url'].lower()
+                name_lower = api['name'].lower() if api.get('name') else ""
+                return not any(keyword in url_lower or keyword in name_lower for keyword in excluded_keywords)
+
+            authenticated_api = next(
+                (
+                    api for api in apis
+                    if api['id'] != login_api['id']
+                    and is_not_auth_related(api)
+                    and 'authorization' in str(api).lower()
+                ),
+                None
+            )
+
             if not authenticated_api:
-                # Use first non-login API as fallback
-                authenticated_api = next((api for api in apis if api['id'] != login_api['id']), None)
-            
+                authenticated_api = next(
+                    (
+                        api for api in apis
+                        if api['id'] != login_api['id']
+                        and is_not_auth_related(api)
+                    ),
+                    None
+                )
+
             if not authenticated_api:
                 raise Exception("No API available for token testing")
             
