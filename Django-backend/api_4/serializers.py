@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import UnboundedPaginationScan, RateLimitScan, ScanLog, FileUploadScanResult, FileUploadTest, ScanSession, AsyncTestResult, FileDownloadTest, ScanHistory, ScanStats
+from .models import UnboundedPaginationScan, RateLimitScan, ScanLog, FileUploadScanResult, FileUploadTest, ScanSession, AsyncTestResult, FileDownloadTest, ScanHistory, ScanStats, ConcurrentSessionScanTC6, TokenTestResultTC6, ScanLogTC6, VulnerabilityReportTC6
 
 class UnboundedPaginationScanSerializer(serializers.Serializer):
     scan_id = serializers.CharField(max_length=255)
@@ -230,3 +230,96 @@ class ScanStatsSerializerTC5(serializers.ModelSerializer):
     class Meta:
         model = ScanStats
         fields = '__all__'
+
+class ScanLogSerializerTC6(serializers.ModelSerializer):
+    """Serializer for scan logs"""
+    created_at = serializers.DateTimeField(format='%Y-%m-%d %H:%M:%S', read_only=True)
+    
+    class Meta:
+        model = ScanLogTC6
+        fields = ['id', 'level', 'message', 'step', 'metadata', 'created_at']
+
+
+class TokenTestResultSerializerTC6(serializers.ModelSerializer):
+    """Serializer for token test results"""
+    created_at = serializers.DateTimeField(format='%Y-%m-%d %H:%M:%S', read_only=True)
+    tested_at = serializers.DateTimeField(format='%Y-%m-%d %H:%M:%S', read_only=True)
+    
+    class Meta:
+        model = TokenTestResultTC6
+        fields = [
+            'id', 'token_1_active_after_5min', 'token_2_active_after_5min',
+            'test_api_url', 'test_api_method', 'vulnerability_confirmed',
+            'token_1_response_code', 'token_2_response_code', 'created_at', 'tested_at'
+        ]
+
+
+class VulnerabilityReportSerializerTC6(serializers.ModelSerializer):
+    """Serializer for vulnerability reports"""
+    created_at = serializers.DateTimeField(format='%Y-%m-%d %H:%M:%S', read_only=True)
+    
+    class Meta:
+        model = VulnerabilityReportTC6
+        fields = [
+            'id', 'title', 'description', 'severity', 'impact', 
+            'recommendation', 'evidence', 'created_at'
+        ]
+
+
+class ConcurrentSessionScanSerializerTC6(serializers.ModelSerializer):
+    """Main serializer for concurrent session scans"""
+    logs = ScanLogSerializerTC6(many=True, read_only=True)
+    token_results = TokenTestResultSerializerTC6(many=True, read_only=True)
+    vulnerability_report = VulnerabilityReportSerializerTC6(read_only=True)
+    created_at = serializers.DateTimeField(format='%Y-%m-%d %H:%M:%S', read_only=True)
+    updated_at = serializers.DateTimeField(format='%Y-%m-%d %H:%M:%S', read_only=True)
+    completed_at = serializers.DateTimeField(format='%Y-%m-%d %H:%M:%S', read_only=True)
+    
+    class Meta:
+        model = ConcurrentSessionScanTC6
+        fields = [
+            'id', 'scan_id', 'status', 'login_api_identified', 'login_api_url',
+            'login_api_method', 'vulnerability_found', 'created_at', 'updated_at',
+            'completed_at', 'error_message', 'logs', 'token_results', 'vulnerability_report'
+        ]
+
+
+class ScanRequestSerializerTC6(serializers.Serializer):
+    """Serializer for scan request input"""
+    scan_id = serializers.IntegerField(
+        min_value=1,
+        help_text="ID from api_orch_scan table"
+    )
+
+
+class ScanStatsSerializerTC6(serializers.Serializer):
+    """Serializer for scan statistics"""
+    total_scans = serializers.IntegerField()
+    completed_scans = serializers.IntegerField()
+    failed_scans = serializers.IntegerField()
+    pending_scans = serializers.IntegerField()
+    processing_scans = serializers.IntegerField()
+    vulnerabilities_found = serializers.IntegerField()
+    vulnerability_rate = serializers.FloatField()
+    avg_scan_duration = serializers.FloatField()
+
+
+class ScanHistorySerializerTC6(serializers.ModelSerializer):
+    """Simplified serializer for scan history"""
+    created_at = serializers.DateTimeField(format='%Y-%m-%d %H:%M:%S', read_only=True)
+    completed_at = serializers.DateTimeField(format='%Y-%m-%d %H:%M:%S', read_only=True)
+    duration = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = ConcurrentSessionScanTC6
+        fields = [
+            'id', 'scan_id', 'status', 'vulnerability_found', 
+            'created_at', 'completed_at', 'duration'
+        ]
+    
+    def get_duration(self, obj):
+        """Calculate scan duration in minutes"""
+        if obj.completed_at and obj.created_at:
+            delta = obj.completed_at - obj.created_at
+            return round(delta.total_seconds() / 60, 2)
+        return None

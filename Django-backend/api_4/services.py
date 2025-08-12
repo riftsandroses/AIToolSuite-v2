@@ -9,9 +9,12 @@ from django.utils import timezone
 from io import BytesIO
 from django.db import connection, transaction
 from django.conf import settings
-from .models import FileUploadScanResult, FileUploadTest, ScanSession, FileDownloadTest, ScanHistory, ScanStats
+from .models import FileUploadScanResult, FileUploadTest, ScanSession, FileDownloadTest, ScanHistory, ScanStats, ConcurrentSessionScanTC6, ScanLogTC6, TokenTestResultTC6, VulnerabilityReportTC6
 from django.db.models import Q, Avg
 from api_orch.models import PostmanAPI, ScanTokens
+from typing import Dict, List, Optional, Tuple
+from openai import OpenAI
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -699,3 +702,407 @@ class ScanOrchestrator:
                 self.history.status = 'failed'
                 self.history.save()
             return False
+
+class ChatGPTServiceTC6:
+    """Service to interact with ChatGPT API for login API identification"""
+    
+    def __init__(self):
+        self.client = OpenAI(api_key=settings.OPENAI_API_KEY)
+
+    def safe_json_parse(self, raw_output: str):
+        """
+        Safely parse JSON from ChatGPT output that may contain code fences or extra text.
+        """
+        if not raw_output:
+            return None
+
+        # Remove triple backticks and optional 'json'
+        cleaned = re.sub(r"^```(?:json)?|```$", "", raw_output.strip(), flags=re.MULTILINE).strip()
+
+        # Try parsing directly
+        try:
+            import json
+            return json.loads(cleaned)
+        except json.JSONDecodeError:
+            # Attempt to extract JSON block from within text
+            match = re.search(r"\{.*\}", cleaned, flags=re.DOTALL)
+            if match:
+                try:
+                    return json.loads(match.group(0))
+                except json.JSONDecodeError:
+                    return None
+            return None
+    
+    def identify_login_api(self, apis: List[Dict], batch_size: int = 5) -> Optional[Dict]:
+        """
+        Use ChatGPT to identify which API is the login API.
+        Processes APIs in batches for large lists.
+        """
+        try:
+            total_apis = len(apis)
+            logger.debug(f"[DEBUG] Total APIs to process: {total_apis}, batch size: {batch_size}")
+
+            # Split into batches
+            for batch_start in range(0, total_apis, batch_size):
+                batch_apis = apis[batch_start:batch_start + batch_size]
+
+                api_descriptions = []
+                for api in batch_apis:
+                    description = {
+                        'id': api['id'],
+                        'name': api['name'],
+                        'method': api['method'],
+                        'url': api['url'],
+                        'body': api['body'],
+                        'headers': api['headers']
+                    }
+                    api_descriptions.append(description)
+
+                prompt = f"""
+                Analyze the following APIs and identify which one is most likely the login/authentication API.
+                Look for indicators such as:
+                - URL patterns containing 'login', 'auth', 'signin', 'authenticate'
+                - Request body containing username/password fields
+                - Content-Type indicating form data or JSON
+                - Method being POST
+
+                APIs to analyze:
+                {json.dumps(api_descriptions, indent=2)}
+
+                Respond with ONLY a JSON object containing:
+                - "login_api_id": the ID of the identified login API (or null if none found)
+                - "confidence": a number between 0 and 1 indicating confidence
+                - "reasoning": brief explanation of why this API was chosen
+
+                If no clear login API is found, set login_api_id to null.
+                """
+
+                logger.debug(f"[DEBUG] Sending batch {batch_start // batch_size + 1} to ChatGPT with {len(batch_apis)} APIs.")
+                logger.debug(f"[DEBUG] Prompt for batch {batch_start // batch_size + 1}:\n{prompt}")
+
+                response = self.client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "system", "content": "You are an API security expert. Analyze APIs to identify login endpoints."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.1
+                )
+
+                raw_output = response.choices[0].message.content.strip()
+                print(f"\n===== ChatGPT raw output (batch {batch_start // batch_size + 1}) =====\n{raw_output}\n====================\n")
+                logger.debug(f"[DEBUG] ChatGPT raw output for batch {batch_start // batch_size + 1}:\n{raw_output!r}")
+
+                try:
+                    result = self.safe_json_parse(raw_output)
+                    if not result:
+                        logger.error(f"[ERROR] Could not parse valid JSON from ChatGPT in batch {batch_start // batch_size + 1}")
+                        continue
+
+                except json.JSONDecodeError as je:
+                    logger.error(f"[ERROR] Failed to parse JSON from ChatGPT output in batch {batch_start // batch_size + 1}: {je}")
+                    continue  # Move to next batch
+
+                if result.get("login_api_id"):
+                    logger.info(f"[INFO] Login API identified in batch {batch_start // batch_size + 1}: {result}")
+                    return result
+
+            logger.warning("[WARN] No login API identified in any batch.")
+            return None
+
+        except Exception as e:
+            logger.error(f"[ERROR] Error calling ChatGPT API: {str(e)}", exc_info=True)
+            return None
+
+
+class DatabaseServiceTC6:
+    """Service to interact with api_orch database tables"""
+    
+    def get_apis_by_scan_id(self, scan_id: int) -> List[Dict]:
+        """Fetch APIs from api_orch_postmanapi table by scan_id"""
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                SELECT "id", "name", "method", "url", "headers", "body", "authorization", 
+                       "query_params", "original_url", "original_headers", "original_body"
+                FROM api_orch_postmanapi 
+                WHERE "scan_id" = %s
+            """, [scan_id])
+            
+            columns = [col[0] for col in cursor.description]
+            return [dict(zip(columns, row)) for row in cursor.fetchall()]
+    
+    def get_scan_credentials(self, scan_id: int) -> Optional[Dict]:
+        """Get username and password from api_orch_scan table"""
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                SELECT username, password 
+                FROM api_orch_scan 
+                WHERE id = %s
+            """, [scan_id])
+            
+            row = cursor.fetchone()
+            if row:
+                return {'username': row[0], 'password': row[1]}
+            return None
+
+
+class TokenServiceTC6:
+    """Service to handle token generation and validation"""
+    
+    def generate_access_token(self, login_api: Dict, credentials: Dict) -> Optional[str]:
+        """Generate access token using login API"""
+        try:
+            # Parse headers
+            headers = json.loads(login_api['headers']) if isinstance(login_api['headers'], str) else login_api['headers']
+            
+            # Parse body and inject credentials
+            body_data = json.loads(login_api['body']) if isinstance(login_api['body'], str) else login_api['body']
+            if 'raw' in body_data:
+                raw_body = json.loads(body_data['raw'])
+                # Try common username/password field names
+                username_fields = ['username', 'email', 'user', 'login']
+                password_fields = ['password', 'pass', 'pwd']
+                
+                for field in username_fields:
+                    if field in raw_body:
+                        raw_body[field] = credentials['username']
+                        break
+                
+                for field in password_fields:
+                    if field in raw_body:
+                        raw_body[field] = credentials['password']
+                        break
+                
+                body_json = raw_body
+            else:
+                body_json = body_data
+                
+            # Make login request
+            response = requests.request(
+                method=login_api['method'],
+                url=login_api['url'],
+                headers=headers,
+                json=body_json,
+                timeout=30
+            )
+            
+            if response.status_code in [200, 201]:
+                response_data = response.json()
+                # Try to extract token from common field names
+                token_fields = ['token', 'access_token', 'accessToken', 'jwt', 'authToken']
+                for field in token_fields:
+                    if field in response_data:
+                        return response_data[field]
+                    
+                # If nested in data object
+                if 'data' in response_data:
+                    for field in token_fields:
+                        if field in response_data['data']:
+                            return response_data['data'][field]
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error generating access token: {str(e)}")
+            return None
+    
+    def test_token_validity(self, token: str, test_api: Dict) -> Tuple[bool, int]:
+        """Test if a token is still valid using a test API"""
+        try:
+            # Parse headers and add authorization
+            headers = json.loads(test_api['headers']) if isinstance(test_api['headers'], str) else test_api['headers']
+            headers['Authorization'] = f"Bearer {token}"
+            
+            # Parse body if exists
+            body_data = None
+            if test_api['body']:
+                body_info = json.loads(test_api['body']) if isinstance(test_api['body'], str) else test_api['body']
+                if 'raw' in body_info:
+                    body_data = json.loads(body_info['raw'])
+            
+            response = requests.request(
+                method=test_api['method'],
+                url=test_api['url'],
+                headers=headers,
+                json=body_data,
+                timeout=30
+            )
+            
+            # Consider token valid if status is 2xx
+            is_valid = 200 <= response.status_code < 300
+            return is_valid, response.status_code
+            
+        except Exception as e:
+            logger.error(f"Error testing token validity: {str(e)}")
+            return False, 0
+
+
+class VulnerabilityScanServiceTC6:
+    """Main service to orchestrate the vulnerability scanning process"""
+    
+    def __init__(self):
+        self.chatgpt_service = ChatGPTServiceTC6()
+        self.db_service = DatabaseServiceTC6()
+        self.token_service = TokenServiceTC6()
+    
+    def create_log(self, scan: ConcurrentSessionScanTC6, level: str, message: str, step: str, metadata: Dict = None):
+        """Create a log entry for the scan"""
+        ScanLogTC6.objects.create(
+            scan=scan,
+            level=level,
+            message=message,
+            step=step,
+            metadata=metadata
+        )
+        logger.info(f"Scan {scan.scan_id} - {step}: {message}")
+
+    def perform_vulnerability_scan(self, scan_id: int) -> ConcurrentSessionScanTC6:
+        """Main method to perform the vulnerability scan"""
+        # Check for existing scan
+        scan, created = ConcurrentSessionScanTC6.objects.get_or_create(
+            scan_id=scan_id,
+            defaults={'status': 'processing'}
+        )
+        
+        if not created:
+            # If scan exists, reset its status if needed
+            if scan.status in ['completed', 'failed']:
+                scan.status = 'processing'
+                scan.error_message = None
+                scan.save()
+        
+        try:
+            self.create_log(scan, 'INFO', f'Started vulnerability scan for scan_id: {scan_id}', 'SCAN_START')
+            
+            # Step 1: Fetch APIs from database
+            self.create_log(scan, 'INFO', 'Fetching APIs from database', 'FETCH_APIS')
+            apis = self.db_service.get_apis_by_scan_id(scan_id)
+            
+            if not apis:
+                raise Exception(f"No APIs found for scan_id: {scan_id}")
+            
+            self.create_log(scan, 'INFO', f'Found {len(apis)} APIs', 'FETCH_APIS', {'api_count': len(apis)})
+            
+            # Step 2: Use ChatGPT to identify login API
+            self.create_log(scan, 'INFO', 'Identifying login API using ChatGPT', 'IDENTIFY_LOGIN')
+            chatgpt_result = self.chatgpt_service.identify_login_api(apis)
+            
+            if not chatgpt_result or not chatgpt_result.get('login_api_id'):
+                raise Exception("Could not identify login API")
+            
+            login_api = next((api for api in apis if api['id'] == chatgpt_result['login_api_id']), None)
+            if not login_api:
+                raise Exception("Identified login API not found in API list")
+            
+            scan.login_api_identified = True
+            scan.login_api_url = login_api['url']
+            scan.login_api_method = login_api['method']
+            scan.save()
+            
+            self.create_log(scan, 'INFO', f'Login API identified: {login_api["name"]}', 'IDENTIFY_LOGIN', chatgpt_result)
+            
+            # Step 3: Get credentials
+            self.create_log(scan, 'INFO', 'Fetching credentials from scan table', 'FETCH_CREDENTIALS')
+            credentials = self.db_service.get_scan_credentials(scan_id)
+            
+            if not credentials:
+                raise Exception("No credentials found for scan")
+            
+            # Step 4: Generate two access tokens
+            self.create_log(scan, 'INFO', 'Generating first access token', 'GENERATE_TOKEN_1')
+            token_1 = self.token_service.generate_access_token(login_api, credentials)
+            
+            if not token_1:
+                raise Exception("Could not generate first access token")
+            
+            time.sleep(1)  # Small delay between requests
+            
+            self.create_log(scan, 'INFO', 'Generating second access token', 'GENERATE_TOKEN_2')
+            token_2 = self.token_service.generate_access_token(login_api, credentials)
+            
+            if not token_2:
+                raise Exception("Could not generate second access token")
+            
+            # Step 5: Find an authenticated API for testing
+            authenticated_api = next((api for api in apis if api['id'] != login_api['id'] and 
+                                    'authorization' in str(api).lower()), None)
+            
+            if not authenticated_api:
+                # Use first non-login API as fallback
+                authenticated_api = next((api for api in apis if api['id'] != login_api['id']), None)
+            
+            if not authenticated_api:
+                raise Exception("No API available for token testing")
+            
+            # Step 6: Wait 5 minutes
+            self.create_log(scan, 'INFO', 'Waiting 5 minutes before testing tokens', 'WAIT_PERIOD')
+            time.sleep(300)  # 5 minutes
+            
+            # Step 7: Test both tokens
+            self.create_log(scan, 'INFO', 'Testing token validity after 5 minutes', 'TEST_TOKENS')
+            
+            token_1_valid, token_1_status = self.token_service.test_token_validity(token_1, authenticated_api)
+            token_2_valid, token_2_status = self.token_service.test_token_validity(token_2, authenticated_api)
+            
+            # Create token test result
+            TokenTestResultTC6.objects.create(
+                scan=scan,
+                token_1=token_1[:50] + '...',  # Store partial token for security
+                token_2=token_2[:50] + '...',
+                token_1_active_after_5min=token_1_valid,
+                token_2_active_after_5min=token_2_valid,
+                test_api_url=authenticated_api['url'],
+                test_api_method=authenticated_api['method'],
+                vulnerability_confirmed=token_1_valid and token_2_valid,
+                token_1_response_code=token_1_status,
+                token_2_response_code=token_2_status,
+                tested_at=timezone.now()
+            )
+            
+            # Step 8: Determine if vulnerability exists
+            vulnerability_found = token_1_valid and token_2_valid
+            
+            if vulnerability_found:
+                self.create_log(scan, 'WARNING', 'Vulnerability detected: Both tokens active simultaneously', 
+                                'VULNERABILITY_FOUND')
+                
+                # Create vulnerability report
+                VulnerabilityReportTC6.objects.create(
+                    scan=scan,
+                    title="Concurrent Session Management Vulnerability",
+                    description="The application allows multiple active sessions for the same user account simultaneously. "
+                                "Both access tokens remained valid after 5 minutes, indicating insufficient session management.",
+                    severity='MEDIUM',
+                    impact="An attacker who gains access to user credentials could maintain persistent access "
+                            "even after the legitimate user logs in from another location.",
+                    recommendation="Implement proper session management that invalidates previous sessions when "
+                                    "a new session is created for the same user account.",
+                    evidence={
+                        'token_1_status': token_1_status,
+                        'token_2_status': token_2_status,
+                        'test_api': authenticated_api['url'],
+                        'login_api': login_api['url']
+                    }
+                )
+            else:
+                self.create_log(scan, 'INFO', 'No vulnerability found: Proper session management detected', 
+                                'NO_VULNERABILITY')
+            
+            # Update scan status
+            scan.vulnerability_found = vulnerability_found
+            scan.status = 'completed'
+            scan.completed_at = timezone.now()
+            scan.save()
+            
+            self.create_log(scan, 'INFO', 'Vulnerability scan completed successfully', 'SCAN_COMPLETE')
+            
+            return scan
+            
+        except Exception as e:
+            error_message = str(e)
+            scan.status = 'failed'
+            scan.error_message = error_message
+            scan.save()
+            
+            self.create_log(scan, 'ERROR', f'Scan failed: {error_message}', 'SCAN_FAILED')
+            raise e

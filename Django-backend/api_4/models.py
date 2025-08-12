@@ -2,6 +2,7 @@ from django.db import models
 from django.utils import timezone
 from django.contrib.auth.models import User
 import json
+import uuid
 
 class UnboundedPaginationScan(models.Model):
     scan_id = models.CharField(max_length=255)
@@ -272,3 +273,109 @@ class ScanStats(models.Model):
 
     class Meta:
         db_table = 'api_4_scan_stats'
+
+class ConcurrentSessionScanTC6(models.Model):
+    """Model to track concurrent session vulnerability scans"""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    scan_id = models.IntegerField(unique=True, help_text="Reference to api_orch_scan table")
+    status = models.CharField(
+        max_length=20,
+        choices=[
+            ('pending', 'Pending'),
+            ('processing', 'Processing'),
+            ('completed', 'Completed'),
+            ('failed', 'Failed'),
+        ],
+        default='pending'
+    )
+    login_api_identified = models.BooleanField(default=False)
+    login_api_url = models.TextField(blank=True, null=True)
+    login_api_method = models.CharField(max_length=10, blank=True, null=True)
+    vulnerability_found = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    completed_at = models.DateTimeField(blank=True, null=True)
+    error_message = models.TextField(blank=True, null=True)
+
+    class Meta:
+        db_table = 'api_4_concurrent_session_scan'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Scan {self.scan_id} - {self.status}"
+
+
+class TokenTestResultTC6(models.Model):
+    """Model to store token test results"""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    scan = models.ForeignKey(ConcurrentSessionScanTC6, on_delete=models.CASCADE, related_name='token_results')
+    token_1 = models.TextField(help_text="First access token")
+    token_2 = models.TextField(help_text="Second access token")
+    token_1_active_after_5min = models.BooleanField(default=False)
+    token_2_active_after_5min = models.BooleanField(default=False)
+    test_api_url = models.TextField(help_text="API used for testing token validity")
+    test_api_method = models.CharField(max_length=10, default='GET')
+    vulnerability_confirmed = models.BooleanField(default=False)
+    token_1_response_code = models.IntegerField(blank=True, null=True)
+    token_2_response_code = models.IntegerField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    tested_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        db_table = 'api_4_token_test_result'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Token Test for Scan {self.scan.scan_id}"
+
+
+class ScanLogTC6(models.Model):
+    """Model to store detailed logs of scan processes"""
+    LOG_LEVELS = [
+        ('INFO', 'Info'),
+        ('WARNING', 'Warning'),
+        ('ERROR', 'Error'),
+        ('DEBUG', 'Debug'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    scan = models.ForeignKey(ConcurrentSessionScanTC6, on_delete=models.CASCADE, related_name='logs')
+    level = models.CharField(max_length=10, choices=LOG_LEVELS, default='INFO')
+    message = models.TextField()
+    step = models.CharField(max_length=100, help_text="Which step of the process")
+    metadata = models.JSONField(blank=True, null=True, help_text="Additional data for the log entry")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'api_4_scan_log'
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f"{self.level} - {self.step} - {self.message[:50]}"
+
+
+class VulnerabilityReportTC6(models.Model):
+    """Model to store vulnerability reports"""
+    SEVERITY_CHOICES = [
+        ('LOW', 'Low'),
+        ('MEDIUM', 'Medium'),
+        ('HIGH', 'High'),
+        ('CRITICAL', 'Critical'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    scan = models.OneToOneField(ConcurrentSessionScanTC6, on_delete=models.CASCADE, related_name='vulnerability_report')
+    title = models.CharField(max_length=200, default="Concurrent Session Management Vulnerability")
+    description = models.TextField()
+    severity = models.CharField(max_length=10, choices=SEVERITY_CHOICES, default='MEDIUM')
+    impact = models.TextField()
+    recommendation = models.TextField()
+    evidence = models.JSONField(help_text="Evidence of the vulnerability")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'api_4_vulnerability_report'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Vulnerability Report for Scan {self.scan.scan_id}"

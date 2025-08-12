@@ -3,10 +3,12 @@ from django.contrib.auth.models import User
 from django.urls import reverse
 from rest_framework.test import APITestCase, APIClient
 from rest_framework import status
+from rest_framework_simplejwt.tokens import RefreshToken
 from unittest.mock import patch, MagicMock
 import json
-from .models import FileUploadScanResult, FileUploadTest, ScanSession
-from .services import FileUploadVulnerabilityScanner
+from .models import FileUploadScanResult, FileUploadTest, ScanSession, ConcurrentSessionScanTC6, TokenTestResultTC6, ScanLogTC6, VulnerabilityReportTC6
+from .services import FileUploadVulnerabilityScanner, ChatGPTServiceTC6, DatabaseServiceTC6, TokenServiceTC6, VulnerabilityScanServiceTC6
+
 
 class FileUploadScannerServiceTest(TestCase):
     """Test the FileUploadVulnerabilityScanner service"""
@@ -333,3 +335,339 @@ class FileUploadTestUtils:
         """Create polyglot file (image + script)"""
         # PNG header + PHP
         return b'\x89PNG\r\n\x1a\n<?php system($_GET["cmd"]); ?>'
+
+
+class BaseTestCaseTC6(APITestCase):
+    """Base test case with authentication setup"""
+    
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='testuser',
+            email='test@example.com',
+            password='testpass123'
+        )
+        refresh = RefreshToken.for_user(self.user)
+        self.access_token = str(refresh.access_token)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.access_token}')
+
+
+class ConcurrentSessionScanModelTestTC6(TestCase):
+    """Test cases for ConcurrentSessionScanTC6 model"""
+    
+    def test_scan_creation(self):
+        """Test creating a new scan"""
+        scan = ConcurrentSessionScanTC6.objects.create(
+            scan_id=1,
+            status='pending'
+        )
+        self.assertEqual(scan.scan_id, 1)
+        self.assertEqual(scan.status, 'pending')
+        self.assertFalse(scan.login_api_identified)
+        self.assertFalse(scan.vulnerability_found)
+    
+    def test_scan_str_representation(self):
+        """Test string representation of scan"""
+        scan = ConcurrentSessionScanTC6.objects.create(
+            scan_id=1,
+            status='completed'
+        )
+        expected = "Scan 1 - completed"
+        self.assertEqual(str(scan), expected)
+
+
+class ChatGPTServiceTestTC6(TestCase):
+    """Test cases for ChatGPT service"""
+    
+    def setUp(self):
+        self.service = ChatGPTServiceTC6()
+    
+    @patch('api_4.services.OpenAI')
+    def test_identify_login_api_success(self, mock_openai):
+        """Test successful login API identification"""
+        # Mock OpenAI response
+        mock_client = MagicMock()
+        mock_openai.return_value = mock_client
+        
+        mock_response = MagicMock()
+        mock_response.choices[0].message.content = json.dumps({
+            "login_api_id": 1,
+            "confidence": 0.95,
+            "reasoning": "URL contains 'login' and POST method with credentials"
+        })
+        mock_client.chat.completions.create.return_value = mock_response
+        
+        apis = [
+            {
+                'id': 1,
+                'name': 'User Login',
+                'method': 'POST',
+                'url': 'http://example.com/login',
+                'body': '{"username": "test", "password": "test"}',
+                'headers': '{"Content-Type": "application/json"}'
+            }
+        ]
+        
+        result = self.service.identify_login_api(apis)
+        
+        self.assertIsNotNone(result)
+        self.assertEqual(result['login_api_id'], 1)
+        self.assertEqual(result['confidence'], 0.95)
+    
+    @patch('api_4.services.OpenAI')
+    def test_identify_login_api_failure(self, mock_openai):
+        """Test failed login API identification"""
+        mock_client = MagicMock()
+        mock_openai.return_value = mock_client
+        mock_client.chat.completions.create.side_effect = Exception("API Error")
+        
+        apis = []
+        result = self.service.identify_login_api(apis)
+        
+        self.assertIsNone(result)
+
+
+class DatabaseServiceTestTC6(TransactionTestCase):
+    """Test cases for database service"""
+    
+    def setUp(self):
+        self.service = DatabaseServiceTC6()
+    
+    @patch('api_4.services.connection')
+    def test_get_apis_by_scan_id(self, mock_connection):
+        """Test fetching APIs by scan ID"""
+        # Mock database cursor
+        mock_cursor = MagicMock()
+        mock_connection.cursor.return_value.__enter__.return_value = mock_cursor
+        
+        mock_cursor.description = [
+            ('id',), ('name',), ('method',), ('url',), 
+            ('headers',), ('body',), ('authorization',), ('query_params',),
+            ('original_url',), ('original_headers',), ('original_body',)
+        ]
+        mock_cursor.fetchall.return_value = [
+            (1, 'Test API', 'POST', 'http://test.com', '{}', '{}', '{}', '{}', 'http://test.com', '{}', '{}')
+        ]
+        
+        result = self.service.get_apis_by_scan_id(1)
+        
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]['id'], 1)
+        self.assertEqual(result[0]['name'], 'Test API')
+    
+    @patch('api_4.services.connection')
+    def test_get_scan_credentials(self, mock_connection):
+        """Test fetching scan credentials"""
+        mock_cursor = MagicMock()
+        mock_connection.cursor.return_value.__enter__.return_value = mock_cursor
+        mock_cursor.fetchone.return_value = ('testuser', 'testpass')
+        
+        result = self.service.get_scan_credentials(1)
+        
+        self.assertIsNotNone(result)
+        self.assertEqual(result['username'], 'testuser')
+        self.assertEqual(result['password'], 'testpass')
+
+
+class TokenServiceTestTC6(TestCase):
+    """Test cases for token service"""
+    
+    def setUp(self):
+        self.service = TokenServiceTC6()
+    
+    @patch('api_4.services.requests')
+    def test_generate_access_token_success(self, mock_requests):
+        """Test successful token generation"""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {'token': 'test_token_123'}
+        mock_requests.request.return_value = mock_response
+        
+        login_api = {
+            'method': 'POST',
+            'url': 'http://example.com/login',
+            'headers': '{"Content-Type": "application/json"}',
+            'body': '{"raw": "{\\\"username\\\":\\\"user\\\",\\\"password\\\":\\\"pass\\\"}"}'
+        }
+        credentials = {'username': 'testuser', 'password': 'testpass'}
+        
+        token = self.service.generate_access_token(login_api, credentials)
+        
+        self.assertEqual(token, 'test_token_123')
+    
+    @patch('api_4.services.requests')
+    def test_test_token_validity_valid(self, mock_requests):
+        """Test token validity check - valid token"""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_requests.request.return_value = mock_response
+        
+        test_api = {
+            'method': 'GET',
+            'url': 'http://example.com/protected',
+            'headers': '{"Content-Type": "application/json"}',
+            'body': None
+        }
+        
+        is_valid, status_code = self.service.test_token_validity('test_token', test_api)
+        
+        self.assertTrue(is_valid)
+        self.assertEqual(status_code, 200)
+    
+    @patch('api_4.services.requests')
+    def test_test_token_validity_invalid(self, mock_requests):
+        """Test token validity check - invalid token"""
+        mock_response = MagicMock()
+        mock_response.status_code = 401
+        mock_requests.request.return_value = mock_response
+        
+        test_api = {
+            'method': 'GET',
+            'url': 'http://example.com/protected',
+            'headers': '{"Content-Type": "application/json"}',
+            'body': None
+        }
+        
+        is_valid, status_code = self.service.test_token_validity('invalid_token', test_api)
+        
+        self.assertFalse(is_valid)
+        self.assertEqual(status_code, 401)
+
+
+class StartScanAPIViewTestTC6(BaseTestCaseTC6):
+    """Test cases for start scan API view"""
+    
+    def test_start_scan_success(self):
+        """Test successful scan start"""
+        url = reverse('start-scan')
+        data = {'scan_id': 1}
+        
+        with patch('api_4.views.VulnerabilityScanServiceTC6') as mock_service:
+            mock_scan = ConcurrentSessionScanTC6(id='test-uuid', scan_id=1, status='completed')
+            mock_service.return_value.perform_vulnerability_scan.return_value = mock_scan
+            
+            response = self.client.post(url, data, format='json')
+            
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            self.assertIn('message', response.data)
+    
+    def test_start_scan_invalid_data(self):
+        """Test scan start with invalid data"""
+        url = reverse('start-scan')
+        data = {'scan_id': 'invalid'}
+        
+        response = self.client.post(url, data, format='json')
+        
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('error', response.data)
+    
+    def test_start_scan_existing_scan(self):
+        """Test starting scan for existing scan_id"""
+        ConcurrentSessionScanTC6.objects.create(scan_id=1, status='completed')
+        
+        url = reverse('start-scan')
+        data = {'scan_id': 1}
+        
+        response = self.client.post(url, data, format='json')
+        
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('Scan already exists', response.data['error'])
+
+
+class ScanResultsAPIViewTestTC6(BaseTestCaseTC6):
+    """Test cases for scan results API view"""
+    
+    def test_get_all_results(self):
+        """Test getting all scan results"""
+        # Create test scans
+        scan1 = ConcurrentSessionScanTC6.objects.create(scan_id=1, status='completed')
+        scan2 = ConcurrentSessionScanTC6.objects.create(scan_id=2, status='failed')
+        
+        url = reverse('scan-results-list')
+        response = self.client.get(url)
+        
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data['results']), 2)
+    
+    def test_get_specific_result(self):
+        """Test getting specific scan result"""
+        scan = ConcurrentSessionScanTC6.objects.create(scan_id=1, status='completed')
+        
+        url = reverse('scan-results-detail', args=[scan.id])
+        response = self.client.get(url)
+        
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['scan_id'], 1)
+    
+    def test_get_nonexistent_result(self):
+        """Test getting non-existent scan result"""
+        url = reverse('scan-results-detail', args=['00000000-0000-0000-0000-000000000000'])
+        response = self.client.get(url)
+        
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class ScanStatsAPIViewTestTC6(BaseTestCaseTC6):
+    """Test cases for scan statistics API view"""
+    
+    def test_get_stats(self):
+        """Test getting scan statistics"""
+        # Create test data
+        ConcurrentSessionScanTC6.objects.create(scan_id=1, status='completed', vulnerability_found=True)
+        ConcurrentSessionScanTC6.objects.create(scan_id=2, status='completed', vulnerability_found=False)
+        ConcurrentSessionScanTC6.objects.create(scan_id=3, status='failed')
+        
+        url = reverse('scan-stats')
+        response = self.client.get(url)
+        
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['total_scans'], 3)
+        self.assertEqual(response.data['completed_scans'], 2)
+        self.assertEqual(response.data['failed_scans'], 1)
+        self.assertEqual(response.data['vulnerabilities_found'], 1)
+
+
+class VulnerabilityScanServiceTestTC6(TestCase):
+    """Test cases for vulnerability scan service"""
+    
+    def setUp(self):
+        self.service = VulnerabilityScanServiceTC6()
+    
+    def test_create_log(self):
+        """Test creating scan log"""
+        scan = ConcurrentSessionScanTC6.objects.create(scan_id=1, status='processing')
+        
+        self.service.create_log(scan, 'INFO', 'Test message', 'TEST_STEP', {'key': 'value'})
+        
+        log = ScanLogTC6.objects.get(scan=scan)
+        self.assertEqual(log.level, 'INFO')
+        self.assertEqual(log.message, 'Test message')
+        self.assertEqual(log.step, 'TEST_STEP')
+        self.assertEqual(log.metadata, {'key': 'value'})
+
+
+class AuthenticationTestTC6(APITestCase):
+    """Test authentication requirements"""
+    
+    def test_unauthenticated_access(self):
+        """Test that unauthenticated requests are rejected"""
+        url = reverse('start-scan')
+        data = {'scan_id': 1}
+        
+        response = self.client.post(url, data, format='json')
+        
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+    
+    def test_invalid_token(self):
+        """Test that invalid tokens are rejected"""
+        self.client.credentials(HTTP_AUTHORIZATION='Bearer invalid_token')
+        
+        url = reverse('start-scan')
+        data = {'scan_id': 1}
+        
+        response = self.client.post(url, data, format='json')
+        
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+# Test runner command example:
+# python manage.py test api_4.tests --verbosity=2

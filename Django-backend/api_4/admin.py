@@ -2,7 +2,10 @@ from django.contrib import admin
 from django.utils.html import format_html
 from django.urls import reverse
 from django.utils.safestring import mark_safe
-from .models import FileUploadScanResult, FileUploadTest, ScanSession
+from .models import FileUploadScanResult, FileUploadTest, ScanSession, ConcurrentSessionScanTC6, TokenTestResultTC6, ScanLogTC6, VulnerabilityReportTC6
+
+
+
 
 @admin.register(ScanSession)
 class ScanSessionAdmin(admin.ModelAdmin):
@@ -216,3 +219,211 @@ export_vulnerable_apis.short_description = "Export vulnerable APIs to CSV"
 
 # Add actions to admin
 FileUploadScanResultAdmin.actions = [mark_as_false_positive, export_vulnerable_apis]
+
+class ScanLogInlineTC6(admin.TabularInline):
+    """Inline admin for scan logs"""
+    model = ScanLogTC6
+    extra = 0
+    readonly_fields = ['level', 'message', 'step', 'metadata', 'created_at']
+    fields = ['level', 'step', 'message', 'created_at']
+    
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+class TokenTestResultInlineTC6(admin.TabularInline):
+    """Inline admin for token test results"""
+    model = TokenTestResultTC6
+    extra = 0
+    readonly_fields = [
+        'token_1_active_after_5min', 'token_2_active_after_5min',
+        'test_api_url', 'vulnerability_confirmed', 'created_at', 'tested_at'
+    ]
+    fields = [
+        'test_api_url', 'token_1_active_after_5min', 'token_2_active_after_5min',
+        'vulnerability_confirmed', 'tested_at'
+    ]
+    
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(ConcurrentSessionScanTC6)
+class ConcurrentSessionScanAdminTC6(admin.ModelAdmin):
+    """Admin interface for concurrent session scans"""
+    list_display = [
+        'scan_id', 'status', 'login_api_identified', 'vulnerability_found',
+        'created_at', 'completed_at', 'view_logs_link'
+    ]
+    list_filter = [
+        'status', 'login_api_identified', 'vulnerability_found',
+        'created_at', 'completed_at'
+    ]
+    search_fields = ['scan_id', 'login_api_url', 'error_message']
+    readonly_fields = [
+        'id', 'created_at', 'updated_at', 'completed_at',
+        'login_api_identified', 'vulnerability_found'
+    ]
+    fieldsets = [
+        ('Basic Information', {
+            'fields': ['id', 'scan_id', 'status']
+        }),
+        ('Login API Information', {
+            'fields': ['login_api_identified', 'login_api_url', 'login_api_method'],
+            'classes': ['collapse'] if not None else []
+        }),
+        ('Results', {
+            'fields': ['vulnerability_found', 'error_message']
+        }),
+        ('Timestamps', {
+            'fields': ['created_at', 'updated_at', 'completed_at'],
+            'classes': ['collapse']
+        })
+    ]
+    inlines = [TokenTestResultInlineTC6, ScanLogInlineTC6]
+    
+    def view_logs_link(self, obj):
+        """Link to view scan logs"""
+        if obj.logs.exists():
+            url = reverse('admin:api_4_scanlogtc6_changelist') + f'?scan__id__exact={obj.id}'
+            return format_html('<a href="{}">View Logs ({})</a>', url, obj.logs.count())
+        return 'No logs'
+    view_logs_link.short_description = 'Logs'
+    
+    def get_queryset(self, request):
+        """Optimize queryset with prefetch_related"""
+        return super().get_queryset(request).prefetch_related('logs', 'token_results')
+
+
+@admin.register(TokenTestResultTC6)
+class TokenTestResultAdminTC6(admin.ModelAdmin):
+    """Admin interface for token test results"""
+    list_display = [
+        'scan_link', 'test_api_method', 'test_api_url',
+        'token_1_active_after_5min', 'token_2_active_after_5min',
+        'vulnerability_confirmed', 'tested_at'
+    ]
+    list_filter = [
+        'vulnerability_confirmed', 'token_1_active_after_5min',
+        'token_2_active_after_5min', 'test_api_method', 'tested_at'
+    ]
+    search_fields = ['scan__scan_id', 'test_api_url']
+    readonly_fields = [
+        'id', 'scan', 'token_1', 'token_2', 'token_1_active_after_5min',
+        'token_2_active_after_5min', 'test_api_url', 'test_api_method',
+        'vulnerability_confirmed', 'token_1_response_code', 'token_2_response_code',
+        'created_at', 'tested_at'
+    ]
+    fieldsets = [
+        ('Scan Information', {
+            'fields': ['id', 'scan']
+        }),
+        ('Test Configuration', {
+            'fields': ['test_api_url', 'test_api_method']
+        }),
+        ('Token Test Results', {
+            'fields': [
+                'token_1_active_after_5min', 'token_2_active_after_5min',
+                'token_1_response_code', 'token_2_response_code',
+                'vulnerability_confirmed'
+            ]
+        }),
+        ('Tokens (Partial)', {
+            'fields': ['token_1', 'token_2'],
+            'classes': ['collapse'],
+            'description': 'Only partial tokens are stored for security'
+        }),
+        ('Timestamps', {
+            'fields': ['created_at', 'tested_at'],
+            'classes': ['collapse']
+        })
+    ]
+    
+    def scan_link(self, obj):
+        """Link to the related scan"""
+        url = reverse('admin:api_4_concurrentsessionscantc6_change', args=[obj.scan.id])
+        return format_html('<a href="{}">Scan {}</a>', url, obj.scan.scan_id)
+    scan_link.short_description = 'Scan'
+    
+    def has_add_permission(self, request):
+        return False
+
+
+@admin.register(ScanLogTC6)
+class ScanLogAdminTC6(admin.ModelAdmin):
+    """Admin interface for scan logs"""
+    list_display = [
+        'scan_link', 'level', 'step', 'short_message', 'created_at'
+    ]
+    list_filter = ['level', 'step', 'created_at']
+    search_fields = ['scan__scan_id', 'message', 'step']
+    readonly_fields = [
+        'id', 'scan', 'level', 'message', 'step', 'metadata', 'created_at'
+    ]
+    fieldsets = [
+        ('Log Information', {
+            'fields': ['id', 'scan', 'level', 'step', 'created_at']
+        }),
+        ('Message', {
+            'fields': ['message']
+        }),
+        ('Metadata', {
+            'fields': ['metadata'],
+            'classes': ['collapse']
+        })
+    ]
+    
+    def scan_link(self, obj):
+        """Link to the related scan"""
+        url = reverse('admin:api_4_concurrentsessionscantc6_change', args=[obj.scan.id])
+        return format_html('<a href="{}">Scan {}</a>', url, obj.scan.scan_id)
+    scan_link.short_description = 'Scan'
+    
+    def short_message(self, obj):
+        """Truncated message for list display"""
+        return obj.message[:100] + '...' if len(obj.message) > 100 else obj.message
+    short_message.short_description = 'Message'
+    
+    def has_add_permission(self, request):
+        return False
+
+
+@admin.register(VulnerabilityReportTC6)
+class VulnerabilityReportAdminTC6(admin.ModelAdmin):
+    """Admin interface for vulnerability reports"""
+    list_display = [
+        'scan_link', 'title', 'severity', 'created_at'
+    ]
+    list_filter = ['severity', 'created_at']
+    search_fields = ['scan__scan_id', 'title', 'description']
+    readonly_fields = [
+        'id', 'scan', 'title', 'description', 'severity',
+        'impact', 'recommendation', 'evidence', 'created_at'
+    ]
+    fieldsets = [
+        ('Report Information', {
+            'fields': ['id', 'scan', 'title', 'severity', 'created_at']
+        }),
+        ('Vulnerability Details', {
+            'fields': ['description', 'impact', 'recommendation']
+        }),
+        ('Evidence', {
+            'fields': ['evidence'],
+            'classes': ['collapse']
+        })
+    ]
+    
+    def scan_link(self, obj):
+        """Link to the related scan"""
+        url = reverse('admin:api_4_concurrentsessionscantc6_change', args=[obj.scan.id])
+        return format_html('<a href="{}">Scan {}</a>', url, obj.scan.scan_id)
+    scan_link.short_description = 'Scan'
+    
+    def has_add_permission(self, request):
+        return False
+
+
+# Custom admin site configuration
+admin.site.site_header = 'Concurrent Session Vulnerability Scanner Admin'
+admin.site.site_title = 'CSVS Admin'
+admin.site.index_title = 'Welcome to Concurrent Session Vulnerability Scanner Administration'

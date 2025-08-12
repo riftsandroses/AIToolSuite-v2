@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import UnboundedPaginationScanView, ScanResultsView, ScanResultsListView, VulnerableAPIsView, ScanStatsView, RateLimitScanView, ScanResultsViewTC2, ScanStatsViewTC2, ScanLogsViewTC2, ScanDetailViewTC2, StartFileUploadScanViewTC3, ScanResultsViewTC3, VulnerableApisViewTC3, ScanStatsViewTC3, FileUploadTestDetailsViewTC3, ScanSessionViewTC3, DeleteScanResultsViewTC3, ExportScanResultsViewTC3, RetestVulnerableApisViewTC3, AsyncProcessTester, TestResultsView, TestStatsView, FileDownloadScanViewTC5, ScanResultsViewTC5, ScanHistoryViewTC5, ScanStatsViewTC5, VulnerabilitiesSummaryView
+from .views import UnboundedPaginationScanView, ScanResultsView, ScanResultsListView, VulnerableAPIsView, ScanStatsView, RateLimitScanView, ScanResultsViewTC2, ScanStatsViewTC2, ScanLogsViewTC2, ScanDetailViewTC2, StartFileUploadScanViewTC3, ScanResultsViewTC3, VulnerableApisViewTC3, ScanStatsViewTC3, FileUploadTestDetailsViewTC3, ScanSessionViewTC3, DeleteScanResultsViewTC3, ExportScanResultsViewTC3, RetestVulnerableApisViewTC3, AsyncProcessTester, TestResultsView, TestStatsView, FileDownloadScanViewTC5, ScanResultsViewTC5, ScanHistoryViewTC5, ScanStatsViewTC5, VulnerabilitiesSummaryView, ConcurrentSessionScanViewSetTC6, StartScanAPIViewTC6, ScanResultsAPIViewTC6, ScanHistoryAPIViewTC6, ScanStatsAPIViewTC6, VulnerabilityReportsAPIViewTC6, HealthCheckAPIViewTC6
 
 urlpatterns = [
     # TC-1 Unbounded Pagination
@@ -40,4 +40,13 @@ urlpatterns = [
     path('stats-tc5/', ScanStatsViewTC5.as_view(), name='scan-stats'),
     path('stats-tc5/<int:scan_id>/', ScanStatsViewTC5.as_view(), name='scan-stats-detail'),
     path('vulnerabilities-tc5/summary/', VulnerabilitiesSummaryView.as_view(), name='vulnerabilities-summary'),
+
+    # TC-6 Unbounded Session
+    path('start-scan-tc6/', StartScanAPIViewTC6.as_view(), name='start-scan'),
+    path('results-tc6/', ScanResultsAPIViewTC6.as_view(), name='scan-results-list'),
+    path('results-tc6/<uuid:scan_uuid>/', ScanResultsAPIViewTC6.as_view(), name='scan-results-detail'),
+    path('history-tc6/', ScanHistoryAPIViewTC6.as_view(), name='scan-history'),
+    path('stats-tc6/', ScanStatsAPIViewTC6.as_view(), name='scan-stats'),
+    path('vulnerability-reports-tc6/', VulnerabilityReportsAPIViewTC6.as_view(), name='vulnerability-reports'),
+    path('health-tc6/', HealthCheckAPIViewTC6.as_view(), name='health-check'),
 ]

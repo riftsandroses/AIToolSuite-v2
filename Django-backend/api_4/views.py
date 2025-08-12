@@ -1,42 +1,79 @@
-# views.py
-from rest_framework.views import APIView
-from rest_framework.generics import ListAPIView
-from rest_framework_simplejwt.authentication import JWTAuthentication
-from rest_framework.pagination import PageNumberPagination
-from rest_framework import permissions, status
-from rest_framework.response import Response
-from django.db import connection, models
+# Standard library imports
+import json
+import logging
+from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
+from threading import Thread
+from typing import Dict, List, Optional
+
+# Third-party imports
+import openai
+import requests
+from django.db import connection, models, transaction
+from django.db.models import Avg, Count, Q
 from django.http import HttpResponse
-from django.conf import settings
-from django.db.models import Q, Count, Avg
-from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
-from .models import UnboundedPaginationScan, RateLimitScan, ScanLog, FileUploadScanResult, FileUploadTest, ScanSession, AsyncTestResult, FileDownloadTest, ScanHistory, ScanStats
-from .serializers import UnboundedPaginationScanSerializer, UnboundedPaginationResultSerializer, RateLimitScanSerializer, ScanRequestSerializer, ScanStatsSerializer, ScanLogSerializer, FileUploadScanResultSerializer, ScanSessionSerializer, FileUploadTestSerializer, ScanStatsSerializerTC3, ScanInputSerializer, AsyncTestResultSerializer, FileDownloadTestSerializer, ScanHistorySerializer, ScanStatsSerializerTC5
+from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework import permissions, status
+from rest_framework.decorators import action
+from rest_framework.filters import OrderingFilter, SearchFilter
+from rest_framework.generics import ListAPIView
+from rest_framework.pagination import PageNumberPagination
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from rest_framework.viewsets import ModelViewSet
+from rest_framework_simplejwt.authentication import JWTAuthentication
+from rest_framework.permissions import IsAuthenticated
+
+# Local application imports
+from .models import (
+    AsyncTestResult,
+    ConcurrentSessionScanTC6,
+    FileDownloadTest,
+    FileUploadScanResult,
+    FileUploadTest,
+    RateLimitScan,
+    ScanHistory,
+    ScanLog,
+    ScanSession,
+    ScanStats,
+    UnboundedPaginationScan,
+    VulnerabilityReportTC6,
+)
+from .pagination import StandardResultsSetPagination
+from .serializers import (
+    AsyncTestResultSerializer,
+    ConcurrentSessionScanSerializerTC6,
+    FileDownloadTestSerializer,
+    FileUploadScanResultSerializer,
+    FileUploadTestSerializer,
+    RateLimitScanSerializer,
+    ScanHistorySerializer,
+    ScanHistorySerializerTC6,
+    ScanInputSerializer,
+    ScanLogSerializer,
+    ScanRequestSerializer,
+    ScanRequestSerializerTC6,
+    ScanSessionSerializer,
+    ScanStatsSerializer,
+    ScanStatsSerializerTC3,
+    ScanStatsSerializerTC5,
+    ScanStatsSerializerTC6,
+    UnboundedPaginationResultSerializer,
+    UnboundedPaginationScanSerializer,
+    VulnerabilityReportSerializerTC6,
+)
+from .services import (
+    FileUploadVulnerabilityScanner,
+    ScanOrchestrator,
+    VulnerabilityScanServiceTC6,
+)
+from .tasks import perform_vulnerability_scan_task
 from .utils.analyzer_tester import ChatGPTAnalyzer, VulnerabilityTester
 from .utils.rate_limit_scanner import RateLimitScanner
-from .pagination import StandardResultsSetPagination
-from .services import FileUploadVulnerabilityScanner, ScanOrchestrator
 from api_4.management.commands.generate_report import Command as ReportCommand
-import json
-from typing import List, Dict, Optional
-from concurrent.futures import ThreadPoolExecutor
-import threading
-from threading import Thread
-import logging 
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status, permissions
-from rest_framework_simplejwt.authentication import JWTAuthentication
-from django.db import transaction
-from django.db.models import Q, Count
-from django.core.paginator import Paginator
-import logging
-import requests
-import concurrent.futures
-import openai
 
-
+# Initialize logger
 logger = logging.getLogger(__name__)
 
 
@@ -1575,3 +1612,359 @@ class VulnerabilitiesSummaryView(APIView):
                 {"error": str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+class ConcurrentSessionScanViewSetTC6(ModelViewSet):
+    """
+    ViewSet for managing concurrent session vulnerability scans
+    """
+    queryset = ConcurrentSessionScanTC6.objects.all()
+    serializer_class = ConcurrentSessionScanSerializerTC6
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    
+    filter_backends = [DjangoFilterBackend, OrderingFilter, SearchFilter]
+    filterset_fields = ['status', 'vulnerability_found', 'login_api_identified']
+    ordering_fields = ['created_at', 'updated_at', 'completed_at']
+    ordering = ['-created_at']
+    search_fields = ['scan_id', 'login_api_url', 'error_message']
+    
+    def get_queryset(self):
+        """Get queryset with related objects prefetched"""
+        return ConcurrentSessionScanTC6.objects.select_related(
+            'vulnerability_report'
+        ).prefetch_related(
+            'logs', 'token_results'
+        ).all()
+
+
+class StartScanAPIViewTC6(APIView):
+    """
+    API endpoint to start a new vulnerability scan
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def post(self, request):
+        """Start a new vulnerability scan"""
+        serializer = ScanRequestSerializerTC6(data=request.data)
+        
+        if not serializer.is_valid():
+            return Response(
+                {'error': 'Invalid input', 'details': serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        scan_id = serializer.validated_data['scan_id']
+        
+        # Check if scan already exists
+        existing_scan = ConcurrentSessionScanTC6.objects.filter(scan_id=scan_id).first()
+        if existing_scan:
+            return Response(
+                {
+                    'error': 'Scan already exists for this scan_id',
+                    'existing_scan_id': str(existing_scan.id),
+                    'status': existing_scan.status
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            # Start scan asynchronously (if using Celery) or synchronously
+            if hasattr(perform_vulnerability_scan_task, 'delay'):
+                # Celery task
+                task = perform_vulnerability_scan_task.delay(scan_id)
+                logger.info(f"Started async scan for scan_id {scan_id}, task_id: {task.id}")
+                
+                # Create initial scan record
+                scan = ConcurrentSessionScanTC6.objects.create(
+                    scan_id=scan_id,
+                    status='pending'
+                )
+                
+                return Response({
+                    'message': 'Vulnerability scan started successfully',
+                    'scan_id': str(scan.id),
+                    'task_id': task.id,
+                    'status': scan.status
+                }, status=status.HTTP_201_CREATED)
+            else:
+                # Synchronous execution
+                service = VulnerabilityScanServiceTC6()
+                scan = service.perform_vulnerability_scan(scan_id)
+                
+                serializer = ConcurrentSessionScanSerializerTC6(scan)
+                return Response({
+                    'message': 'Vulnerability scan completed',
+                    'scan': serializer.data
+                }, status=status.HTTP_201_CREATED)
+                
+        except Exception as e:
+            logger.error(f"Error starting vulnerability scan: {str(e)}")
+            return Response(
+                {'error': 'Failed to start vulnerability scan', 'details': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class ScanResultsAPIViewTC6(APIView):
+    """
+    API endpoint to get scan results with detailed information
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get(self, request, scan_uuid=None):
+        """Get scan results"""
+        if scan_uuid:
+            # Get specific scan result
+            try:
+                scan = ConcurrentSessionScanTC6.objects.select_related(
+                    'vulnerability_report'
+                ).prefetch_related(
+                    'logs', 'token_results'
+                ).get(id=scan_uuid)
+                
+                serializer = ConcurrentSessionScanSerializerTC6(scan)
+                return Response(serializer.data)
+                
+            except ConcurrentSessionScanTC6.DoesNotExist:
+                return Response(
+                    {'error': 'Scan not found'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+        else:
+            # Get all scan results with pagination
+            scans = ConcurrentSessionScanTC6.objects.select_related(
+                'vulnerability_report'
+            ).prefetch_related(
+                'logs', 'token_results'
+            ).order_by('-created_at')
+            
+            # Apply filters
+            status_filter = request.query_params.get('status')
+            if status_filter:
+                scans = scans.filter(status=status_filter)
+            
+            vulnerability_filter = request.query_params.get('vulnerability_found')
+            if vulnerability_filter is not None:
+                scans = scans.filter(vulnerability_found=vulnerability_filter.lower() == 'true')
+            
+            # Pagination
+            page_size = min(int(request.query_params.get('page_size', 20)), 100)
+            page = int(request.query_params.get('page', 1))
+            offset = (page - 1) * page_size
+            
+            total_count = scans.count()
+            scans = scans[offset:offset + page_size]
+            
+            serializer = ConcurrentSessionScanSerializerTC6(scans, many=True)
+            
+            return Response({
+                'results': serializer.data,
+                'pagination': {
+                    'page': page,
+                    'page_size': page_size,
+                    'total_count': total_count,
+                    'total_pages': (total_count + page_size - 1) // page_size
+                }
+            })
+
+
+class ScanHistoryAPIViewTC6(APIView):
+    """
+    API endpoint to get scan history with summary information
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get(self, request):
+        """Get scan history"""
+        # Date range filter
+        days = int(request.query_params.get('days', 30))
+        start_date = timezone.now() - timedelta(days=days)
+        
+        scans = ConcurrentSessionScanTC6.objects.filter(
+            created_at__gte=start_date
+        ).order_by('-created_at')
+        
+        # Apply additional filters
+        status_filter = request.query_params.get('status')
+        if status_filter:
+            scans = scans.filter(status=status_filter)
+        
+        vulnerability_filter = request.query_params.get('vulnerability_found')
+        if vulnerability_filter is not None:
+            scans = scans.filter(vulnerability_found=vulnerability_filter.lower() == 'true')
+        
+        # Pagination
+        page_size = min(int(request.query_params.get('page_size', 50)), 200)
+        page = int(request.query_params.get('page', 1))
+        offset = (page - 1) * page_size
+        
+        total_count = scans.count()
+        scans = scans[offset:offset + page_size]
+        
+        serializer = ScanHistorySerializerTC6(scans, many=True)
+        
+        return Response({
+            'history': serializer.data,
+            'pagination': {
+                'page': page,
+                'page_size': page_size,
+                'total_count': total_count,
+                'total_pages': (total_count + page_size - 1) // page_size
+            },
+            'filters': {
+                'days': days,
+                'status': status_filter,
+                'vulnerability_found': vulnerability_filter
+            }
+        })
+
+
+class ScanStatsAPIViewTC6(APIView):
+    """
+    API endpoint to get scan statistics and metrics
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get(self, request):
+        """Get scan statistics"""
+        # Date range filter
+        days = int(request.query_params.get('days', 30))
+        start_date = timezone.now() - timedelta(days=days)
+        
+        # Basic stats
+        scans = ConcurrentSessionScanTC6.objects.filter(created_at__gte=start_date)
+        
+        stats = scans.aggregate(
+            total_scans=Count('id'),
+            completed_scans=Count('id', filter=Q(status='completed')),
+            failed_scans=Count('id', filter=Q(status='failed')),
+            pending_scans=Count('id', filter=Q(status='pending')),
+            processing_scans=Count('id', filter=Q(status='processing')),
+            vulnerabilities_found=Count('id', filter=Q(vulnerability_found=True))
+        )
+        
+        # Calculate vulnerability rate
+        vulnerability_rate = 0
+        if stats['completed_scans'] > 0:
+            vulnerability_rate = (stats['vulnerabilities_found'] / stats['completed_scans']) * 100
+        
+        # Calculate average scan duration in minutes
+        completed_scans = scans.filter(
+            status='completed',
+            completed_at__isnull=False
+        )
+        
+        avg_scan_duration = 0
+        if completed_scans.exists():
+            durations = [
+                (scan.completed_at - scan.created_at).total_seconds() / 60
+                for scan in completed_scans
+            ]
+            avg_scan_duration = sum(durations) / len(durations)
+        
+        # Daily breakdown for the last 7 days
+        daily_stats = []
+        for i in range(7):
+            day_start = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=i)
+            day_end = day_start + timedelta(days=1)
+            
+            day_scans = scans.filter(created_at__gte=day_start, created_at__lt=day_end)
+            daily_stats.append({
+                'date': day_start.strftime('%Y-%m-%d'),
+                'total_scans': day_scans.count(),
+                'vulnerabilities_found': day_scans.filter(vulnerability_found=True).count(),
+                'completed_scans': day_scans.filter(status='completed').count()
+            })
+        
+        response_data = {
+            'total_scans': stats['total_scans'] or 0,
+            'completed_scans': stats['completed_scans'] or 0,
+            'failed_scans': stats['failed_scans'] or 0,
+            'pending_scans': stats['pending_scans'] or 0,
+            'processing_scans': stats['processing_scans'] or 0,
+            'vulnerabilities_found': stats['vulnerabilities_found'] or 0,
+            'vulnerability_rate': round(vulnerability_rate, 2),
+            'avg_scan_duration': round(avg_scan_duration, 2),
+            'daily_breakdown': daily_stats,
+            'period_days': days
+        }
+        
+        serializer = ScanStatsSerializerTC6(data=response_data)
+        serializer.is_valid()
+        
+        return Response(response_data)
+
+class VulnerabilityReportsAPIViewTC6(APIView):
+    """
+    API endpoint to get vulnerability reports
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get(self, request):
+        """Get vulnerability reports"""
+        # Get only scans with vulnerabilities
+        reports = VulnerabilityReportTC6.objects.select_related('scan').order_by('-created_at')
+        
+        # Filters
+        severity_filter = request.query_params.get('severity')
+        if severity_filter:
+            reports = reports.filter(severity=severity_filter.upper())
+        
+        days = int(request.query_params.get('days', 30))
+        start_date = timezone.now() - timedelta(days=days)
+        reports = reports.filter(created_at__gte=start_date)
+        
+        # Pagination
+        page_size = min(int(request.query_params.get('page_size', 20)), 100)
+        page = int(request.query_params.get('page', 1))
+        offset = (page - 1) * page_size
+        
+        total_count = reports.count()
+        reports = reports[offset:offset + page_size]
+        
+        serializer = VulnerabilityReportSerializerTC6(reports, many=True)
+        
+        # Add scan information to each report
+        enriched_reports = []
+        for report_data, report_obj in zip(serializer.data, reports):
+            report_data['scan_info'] = {
+                'scan_id': report_obj.scan.scan_id,
+                'scan_uuid': str(report_obj.scan.id),
+                'login_api_url': report_obj.scan.login_api_url,
+                'created_at': report_obj.scan.created_at.strftime('%Y-%m-%d %H:%M:%S')
+            }
+            enriched_reports.append(report_data)
+        
+        return Response({
+            'reports': enriched_reports,
+            'pagination': {
+                'page': page,
+                'page_size': page_size,
+                'total_count': total_count,
+                'total_pages': (total_count + page_size - 1) // page_size
+            },
+            'filters': {
+                'severity': severity_filter,
+                'days': days
+            }
+        })
+
+# Additional utility views
+class HealthCheckAPIViewTC6(APIView):
+    """Health check endpoint"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get(self, request):
+        """Health check"""
+        return Response({
+            'status': 'healthy',
+            'timestamp': timezone.now().isoformat(),
+            'service': 'Concurrent Session Vulnerability Scanner'
+        })

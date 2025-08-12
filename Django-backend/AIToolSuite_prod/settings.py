@@ -214,12 +214,27 @@ REST_FRAMEWORK = {
         'rest_framework.renderers.BrowsableAPIRenderer',  # Enables DRF web UI  
     ),
 
+    'DEFAULT_FILTER_BACKENDS': ( 
+        'django_filters.rest_framework.DjangoFilterBackend',
+        'rest_framework.filters.OrderingFilter',
+        'rest_framework.filters.SearchFilter',
+    ),
+
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
 
     'DEFAULT_PAGINATION_CLASS': 'api_4.pagination.StandardResultsSetPagination',
     'PAGE_SIZE': 20,
+
+    'DEFAULT_THROTTLE_CLASSES': (
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle'
+    ),
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '100/hour',
+        'user': '1000/hour'
+    }
 }
 
 LOGGING = {
@@ -239,7 +254,7 @@ LOGGING = {
             'formatter': 'verbose',
         },
         'console': {
-                'level': 'INFO',
+                'level': 'DEBUG',
                 'class': 'logging.StreamHandler',
         },
     },
@@ -371,3 +386,7 @@ FILE_UPLOAD_SCANNER = {
 # API-4 TC-5 File Download Count & Vulnerability Threshold settings
 FILE_DOWNLOAD_TEST_COUNT = 10
 VULNERABILITY_THRESHOLD = 0.7
+
+# Security settings for API requests
+REQUESTS_TIMEOUT = 30
+MAX_API_RETRIES = 3
