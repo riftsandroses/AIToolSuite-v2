@@ -62,6 +62,7 @@ INSTALLED_APPS = [
     'api_custom_testing',
     'api_4',
     'api_7',
+    'api_8',
     'api_9'
 ]
 
@@ -390,3 +391,21 @@ VULNERABILITY_THRESHOLD = 0.7
 # Security settings for API requests
 REQUESTS_TIMEOUT = 30
 MAX_API_RETRIES = 3
+
+# API-8 TC-1 CORS Misconfiguration Scanner specific settings
+CORS_SCANNER_SETTINGS = {
+    'REQUEST_TIMEOUT': 10,  # seconds
+    'MAX_CONCURRENT_SCANS': 5,
+    'TEST_ORIGINS': [
+        'https://evil.example',
+        'https://malicious.com',
+        'http://127.0.0.1:8080',
+        'null'
+    ],
+    'VULNERABILITY_THRESHOLDS': {
+        'CRITICAL': 9.0,
+        'HIGH': 7.0,
+        'MEDIUM': 4.0,
+        'LOW': 2.0,
+    }
+}

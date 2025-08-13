@@ -38,8 +38,7 @@ class TestCaseDefinitions:
                 'TC-3': 'Unrestricted File Upload',
                 'TC-4': 'Async Task Overload',
                 'TC-5': 'Unthrottled File Download',
-                'TC-6': 'Unbounded Session',
-                'TC-7': 'Email/SMS Flooding'
+                'TC-6': 'Unbounded Session'
             },
             'API5:2023': {
                 'TC-1': 'Broken Function Level Authorization',
