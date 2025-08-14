@@ -1,20 +1,21 @@
 import requests
 import json
 import time
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Any, Optional, Tuple
 from django.utils import timezone
-from django.db import transaction
-from .models import CORSScanResultTC1, CORSScanSessionTC1, ScanTC2, VulnerabilityTC2, ScanHistoryTC2, ScanMetricsTC2
+from django.db import transaction, connection
+from .models import CORSScanResultTC1, CORSScanSessionTC1, ScanTC2, VulnerabilityTC2, ScanHistoryTC2, ScanMetricsTC2, ScanTC3, VulnerabilityTC3, ScanHistoryTC3, ScanStatsTC3
 import subprocess
-import requests
 import ssl
 import socket
 from urllib.parse import urlparse
 from .utils.ai_analyzer_tc2 import AIAnalyzerTC2
+import re
+from django.conf import settings
+import openai
 import logging
 
 logger = logging.getLogger(__name__)
-
 
 class CORSScannerServiceTC1:
     def __init__(self):
@@ -705,3 +706,431 @@ class ScanAnalyticsServiceTC2:
             'most_common_vulnerabilities': list(common_vulns),
             'vulnerability_trends': trends
         }
+
+import json
+import re
+import time
+import requests
+import logging
+from typing import Dict, List, Any, Optional, Tuple
+from django.db import connection
+from django.utils import timezone
+from django.conf import settings
+import openai
+from .models import ScanTC3, VulnerabilityTC3, ScanHistoryTC3, ScanStatsTC3
+
+logger = logging.getLogger(__name__)
+
+class VulnerabilityScannerServiceTC3:
+    def __init__(self):
+        # Initialize OpenAI client
+        openai.api_key = getattr(settings, 'OPENAI_API_KEY', '')
+        self.session = requests.Session()
+        
+        # Common debug/error patterns to detect
+        self.debug_patterns = {
+            'django_debug': [
+                r'Django\s+Debug\s+Mode',
+                r'DEBUG\s*=\s*True',
+                r'django\.core\.exceptions',
+                r'INSTALLED_APPS',
+                r'Traceback \(most recent call last\)'
+            ],
+            'flask_debug': [
+                r'Werkzeug\s+Debugger',
+                r'Flask\s+Debug\s+Mode',
+                r'werkzeug\.debug',
+                r'__traceback_hide__'
+            ],
+            'spring_debug': [
+                r'Whitelabel\s+Error\s+Page',
+                r'org\.springframework',
+                r'java\.lang\.Exception',
+                r'Spring\s+Framework'
+            ],
+            'stack_traces': [
+                r'Traceback \(most recent call last\)',
+                r'at\s+[\w\.$]+\(',
+                r'Exception\s+in\s+thread',
+                r'Caused\s+by:',
+                r'^\s*File\s+".*",\s+line\s+\d+'
+            ]
+        }
+        
+        # Version disclosure patterns
+        self.version_headers = [
+            'X-Powered-By', 'Server', 'X-AspNet-Version',
+            'X-AspNetMvc-Version', 'X-Generator', 'X-Drupal-Cache'
+        ]
+
+    def scan_apis_for_vulnerabilities(self, scan_id: int) -> Dict[str, Any]:
+        """Main scanning function"""
+        try:
+            # Get APIs for the scan_id
+            apis = self._get_apis_by_scan_id(scan_id)
+            if not apis:
+                return {'error': 'No APIs found for scan_id'}
+            
+            # Get JWT token
+            jwt_token = self._get_jwt_token(scan_id)
+            
+            # Create scan record
+            scan = ScanTC3.objects.create(
+                scan_id=scan_id,
+                status='RUNNING',
+                total_apis=len(apis)
+            )
+            
+            # Create stats record
+            ScanStatsTC3.objects.create(scan=scan)
+            
+            vulnerabilities_found = 0
+            
+            for api in apis:
+                try:
+                    # Test API for vulnerabilities
+                    vulns = self._test_api_for_verbose_errors(api, jwt_token)
+                    
+                    # Save vulnerabilities
+                    for vuln_data in vulns:
+                        vulnerability = VulnerabilityTC3.objects.create(
+                            scan=scan,
+                            api_id=api['id'],
+                            api_name=api['name'],
+                            api_url=api['url'],
+                            api_method=api['method'],
+                            **vuln_data
+                        )
+                        vulnerabilities_found += 1
+                    
+                    # Update scan progress
+                    scan.scanned_apis += 1
+                    scan.vulnerabilities_found = vulnerabilities_found
+                    scan.save()
+                    
+                    # Log to history
+                    ScanHistoryTC3.objects.create(
+                        scan=scan,
+                        api_id=api['id'],
+                        api_name=api['name'],
+                        status='COMPLETED'
+                    )
+                    
+                except Exception as e:
+                    logger.error(f"Error testing API {api['id']}: {str(e)}")
+                    ScanHistoryTC3.objects.create(
+                        scan=scan,
+                        api_id=api['id'],
+                        api_name=api['name'],
+                        status='FAILED',
+                        error_message=str(e)
+                    )
+            
+            # Complete scan
+            scan.status = 'COMPLETED'
+            scan.completed_at = timezone.now()
+            scan.save()
+            
+            # Update stats
+            self._update_scan_stats(scan)
+            
+            return {
+                'scan_id': scan.scan_id,
+                'status': 'completed',
+                'vulnerabilities_found': vulnerabilities_found
+            }
+            
+        except Exception as e:
+            logger.error(f"Scan failed: {str(e)}")
+            if 'scan' in locals():
+                scan.status = 'FAILED'
+                scan.save()
+            return {'error': str(e)}
+
+    def _get_apis_by_scan_id(self, scan_id: int) -> List[Dict]:
+        """Fetch APIs from api_orch_postmanapi table"""
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                SELECT "id", "name", "method", "url", "headers", "body", "authorization", 
+                       "query_params", "pre_request_script", "test_script"
+                FROM api_orch_postmanapi 
+                WHERE "scan_id" = %s
+            """, [scan_id])
+            
+            columns = [col[0] for col in cursor.description]
+            return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+    def _get_jwt_token(self, scan_id: int) -> Optional[str]:
+        """Get JWT token from api_orch_scantokens table"""
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                SELECT access_token 
+                FROM api_orch_scantokens 
+                WHERE scan_id = %s
+                ORDER BY created_at DESC
+                LIMIT 1
+            """, [scan_id])
+            
+            result = cursor.fetchone()
+            return result[0] if result else None
+
+    def _test_api_for_verbose_errors(self, api: Dict, jwt_token: str) -> List[Dict]:
+        """Test individual API for verbose errors and debug mode"""
+        vulnerabilities = []
+        
+        # Prepare headers
+        headers = json.loads(api['headers']) if api['headers'] else {}
+        if jwt_token:
+            headers['Authorization'] = f'Bearer {jwt_token}'
+        
+        # Test cases for verbose errors
+        test_cases = [
+            {'name': 'malformed_json', 'body': '{"invalid": json}'},
+            {'name': 'invalid_types', 'body': '{"id": "not_a_number"}'},
+            {'name': 'long_input', 'body': json.dumps({"field": "A" * 10000})},
+            {'name': 'missing_fields', 'body': '{}'},
+            {'name': 'sql_injection', 'body': '{"id": "1\' OR 1=1--"}'},
+            {'name': 'xss_payload', 'body': '{"name": "<script>alert(1)</script>"}'}
+        ]
+        
+        for test_case in test_cases:
+            try:
+                start_time = time.time()
+                
+                # Make request
+                if api['method'].upper() == 'GET':
+                    response = self.session.get(
+                        api['url'], 
+                        headers=headers, 
+                        timeout=10
+                    )
+                else:
+                    response = self.session.request(
+                        api['method'],
+                        api['url'],
+                        headers=headers,
+                        data=test_case['body'],
+                        timeout=10
+                    )
+                
+                response_time = time.time() - start_time
+                
+                # Analyze response for vulnerabilities
+                vulns = self._analyze_response_for_vulnerabilities(
+                    response, test_case, api
+                )
+                vulnerabilities.extend(vulns)
+                
+                # Log to history
+                ScanHistoryTC3.objects.create(
+                    scan_id=None,  # Will be set by parent function
+                    api_id=api['id'],
+                    api_name=api['name'],
+                    status='TESTED',
+                    response_time=response_time,
+                    status_code=response.status_code
+                )
+                
+            except requests.exceptions.RequestException as e:
+                logger.warning(f"Request failed for API {api['id']}: {str(e)}")
+        
+        return vulnerabilities
+
+    def _analyze_response_for_vulnerabilities(
+        self, response: requests.Response, test_case: Dict, api: Dict
+    ) -> List[Dict]:
+        """Analyze HTTP response for vulnerabilities"""
+        vulnerabilities = []
+        
+        # Check response headers for version disclosure
+        for header_name in self.version_headers:
+            if header_name in response.headers:
+                vulnerabilities.append({
+                    'vulnerability_type': 'VERSION_DISCLOSURE',
+                    'severity': 'MEDIUM',
+                    'title': f'Version Disclosure via {header_name} Header',
+                    'description': f'Server version information disclosed in {header_name} header',
+                    'evidence': {
+                        'header': header_name,
+                        'value': response.headers[header_name],
+                        'test_case': test_case['name']
+                    },
+                    'recommendation': f'Remove or obfuscate the {header_name} header'
+                })
+        
+        # Check response body for debug information
+        response_text = response.text
+        
+        # Check for stack traces and debug information
+        for debug_type, patterns in self.debug_patterns.items():
+            for pattern in patterns:
+                matches = re.findall(pattern, response_text, re.IGNORECASE | re.MULTILINE)
+                if matches:
+                    severity = self._determine_severity(debug_type, response.status_code)
+                    vulnerabilities.append({
+                        'vulnerability_type': self._map_debug_type(debug_type),
+                        'severity': severity,
+                        'title': f'{debug_type.replace("_", " ").title()} Information Disclosure',
+                        'description': f'Application exposes {debug_type} information that could aid attackers',
+                        'evidence': {
+                            'pattern_matched': pattern,
+                            'matches': matches[:5],  # Limit matches
+                            'status_code': response.status_code,
+                            'test_case': test_case['name'],
+                            'response_excerpt': response_text[:1000]
+                        },
+                        'recommendation': 'Disable debug mode in production and implement proper error handling'
+                    })
+        
+        # Use AI for additional analysis
+        ai_analysis = self._ai_analyze_response(response, test_case, api)
+        if ai_analysis:
+            vulnerabilities.extend(ai_analysis)
+        
+        return vulnerabilities
+
+    def _ai_analyze_response(
+        self, response: requests.Response, test_case: Dict, api: Dict
+    ) -> List[Dict]:
+        """Use OpenAI to analyze response for vulnerabilities"""
+        try:
+            if not openai.api_key:
+                return []
+            
+            prompt = f"""
+            Analyze this HTTP response for security vulnerabilities, specifically looking for:
+            1. Verbose error messages that leak sensitive information
+            2. Debug mode indicators
+            3. Stack traces
+            4. Framework/version disclosures
+            5. Any information that could help an attacker
+            
+            API: {api['method']} {api['url']}
+            Test Case: {test_case['name']}
+            Status Code: {response.status_code}
+            Headers: {dict(response.headers)}
+            Response Body (first 2000 chars): {response.text[:2000]}
+            
+            Respond with a JSON array of vulnerabilities found, each with:
+            - vulnerability_type (one of: VERBOSE_ERRORS, DEBUG_MODE, STACK_TRACES, VERSION_DISCLOSURE, FRAMEWORK_EXPOSURE)
+            - severity (LOW, MEDIUM, HIGH, CRITICAL)
+            - title
+            - description
+            - evidence (object with relevant details)
+            - recommendation
+            
+            If no vulnerabilities found, return empty array.
+            """
+            
+            response_ai = openai.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1
+            )
+            
+            ai_result = json.loads(response_ai.choices[0].message.content)
+            return ai_result if isinstance(ai_result, list) else []
+            
+        except Exception as e:
+            logger.warning(f"AI analysis failed: {str(e)}")
+            return []
+
+    def _determine_severity(self, debug_type: str, status_code: int) -> str:
+        """Determine vulnerability severity based on type and context"""
+        if debug_type in ['stack_traces', 'django_debug'] and status_code == 500:
+            return 'HIGH'
+        elif debug_type in ['spring_debug', 'flask_debug']:
+            return 'HIGH'
+        elif 'debug' in debug_type:
+            return 'MEDIUM'
+        else:
+            return 'LOW'
+
+    def _map_debug_type(self, debug_type: str) -> str:
+        """Map debug type to vulnerability type"""
+        mapping = {
+            'django_debug': 'DEBUG_MODE',
+            'flask_debug': 'DEBUG_MODE', 
+            'spring_debug': 'DEBUG_MODE',
+            'stack_traces': 'STACK_TRACES'
+        }
+        return mapping.get(debug_type, 'VERBOSE_ERRORS')
+
+    def _update_scan_stats(self, scan: ScanTC3):
+        """Update scan statistics"""
+        vulnerabilities = scan.vulnerabilities.all()
+        
+        stats = scan.stats
+        stats.total_requests = scan.scanned_apis
+        stats.successful_requests = scan.history.filter(status='COMPLETED').count()
+        stats.failed_requests = scan.history.filter(status='FAILED').count()
+        
+        # Calculate average response time
+        response_times = scan.history.filter(
+            response_time__isnull=False
+        ).values_list('response_time', flat=True)
+        
+        if response_times:
+            stats.avg_response_time = sum(response_times) / len(response_times)
+        
+        # Count vulnerabilities by severity
+        severity_counts = {}
+        type_counts = {}
+        
+        for vuln in vulnerabilities:
+            severity_counts[vuln.severity] = severity_counts.get(vuln.severity, 0) + 1
+            type_counts[vuln.vulnerability_type] = type_counts.get(vuln.vulnerability_type, 0) + 1
+        
+        stats.vulnerabilities_by_severity = severity_counts
+        stats.vulnerabilities_by_type = type_counts
+        stats.save()
+
+    def _run_external_scanners(self, url: str) -> List[Dict[str, Any]]:
+        """Run external scanners and convert results to vulnerabilities"""
+        from .utils.vulnerability_analyzer import VulnerabilityAnalyzerTC3
+        
+        vulnerabilities = []
+        analyzer = VulnerabilityAnalyzerTC3()
+        
+        try:
+            results = analyzer.run_external_scanner(url)
+            
+            # Process Dirb results
+            if results.get('dirb_results') and not results['dirb_results'].get('error'):
+                dirb_data = results['dirb_results']
+                found_dirs = dirb_data.get('found_directories', [])
+                
+                if found_dirs:
+                    vulnerabilities.append({
+                        'vulnerability_type': 'FRAMEWORK_EXPOSURE',
+                        'severity': 'MEDIUM',
+                        'title': 'Directory/File Enumeration Possible',
+                        'description': f'Dirb found {len(found_dirs)} accessible directories/files that may expose sensitive information',
+                        'evidence': {
+                            'tool': 'dirb',
+                            'found_paths': found_dirs[:10],  # Limit to first 10
+                            'total_found': len(found_dirs)
+                        },
+                        'recommendation': 'Review and restrict access to exposed directories and files',
+                        'cve_references': []
+                    })
+            
+            # Process Nikto results (existing logic)
+            if results.get('nikto_results') and not results['nikto_results'].get('error'):
+                vulnerabilities.append({
+                    'vulnerability_type': 'FRAMEWORK_EXPOSURE',
+                    'severity': 'MEDIUM', 
+                    'title': 'Nikto Security Issues Detected',
+                    'description': 'Nikto scanner found potential security issues',
+                    'evidence': {
+                        'tool': 'nikto',
+                        'output': results['nikto_results']['output'][:1000]  # Limit output
+                    },
+                    'recommendation': 'Review Nikto findings and address identified issues',
+                    'cve_references': []
+                })
+                
+        except Exception as e:
+            logger.warning(f"External scanner error: {str(e)}")
+        
+        return vulnerabilities

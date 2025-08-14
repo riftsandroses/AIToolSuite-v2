@@ -355,6 +355,10 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'api_8.tasks.update_vulnerability_intelligence_tc2',
         'schedule': 604800.0,  # Run weekly
     },
+    'cleanup-old-scans-tc3': {
+        'task': 'api_8.tasks.cleanup_old_scans_tc2',
+        'schedule': crontab(hour=2, minute=0),  # Run daily at 2 AM
+    },
 }
 CELERYD_FORCE_EXECV = True
 
@@ -436,4 +440,16 @@ API_8_CONFIG = {
     'ENABLE_AI_ANALYSIS': True,
     'TESTSSL_PATH': '/usr/local/bin/testssl.sh',  # Path to testssl.sh
     'REPORT_RETENTION_DAYS': 180,  # Keep reports for 6 months
+}
+
+# API-8 TC-3 Excessive Debug Information Scanner Configurations
+VULNERABILITY_SCANNER_CONFIG = {
+    'max_concurrent_scans': 5,
+    'request_timeout': 30,  # seconds
+    'max_payload_size': 10 * 1024 * 1024,  # 1MB
+    'enable_ai_analysis': True,
+    'enable_external_tools': True,  # Set to False if you don't have nikto, dirb etc installed
+    'rate_limit_delay': 1,  # seconds between requests to same host
+    'user_agent': 'VulnerabilityScanner-TC2/1.0',
+    'max_redirects': 5,
 }

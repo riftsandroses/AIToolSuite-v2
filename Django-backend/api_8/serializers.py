@@ -1,6 +1,5 @@
 from rest_framework import serializers
-from .models import CORSScanResultTC1, CORSScanSessionTC1, ScanTC2, VulnerabilityTC2, ScanHistoryTC2, ScanMetricsTC2
-
+from .models import CORSScanResultTC1, CORSScanSessionTC1, ScanTC2, VulnerabilityTC2, ScanHistoryTC2, ScanMetricsTC2, ScanTC3, VulnerabilityTC3, ScanHistoryTC3, ScanStatsTC3
 
 class CORSScanRequestTC1Serializer(serializers.Serializer):
     scan_id = serializers.IntegerField(min_value=1)
@@ -190,3 +189,86 @@ class ScanResultsSerializerTC2(serializers.Serializer):
     total_vulnerabilities = serializers.IntegerField()
     filtered_count = serializers.IntegerField()
     filters_applied = serializers.DictField()
+
+class ScanRequestSerializerTC3(serializers.Serializer):
+    scan_id = serializers.IntegerField(min_value=1)
+
+class VulnerabilitySerializerTC3(serializers.ModelSerializer):
+    class Meta:
+        model = VulnerabilityTC3
+        fields = [
+            'id', 'api_id', 'api_name', 'api_url', 'api_method',
+            'vulnerability_type', 'severity', 'title', 'description',
+            'evidence', 'recommendation', 'cve_references', 'discovered_at'
+        ]
+        read_only_fields = ['id', 'discovered_at']
+
+class ScanHistorySerializerTC3(serializers.ModelSerializer):
+    class Meta:
+        model = ScanHistoryTC3
+        fields = [
+            'id', 'api_id', 'api_name', 'status', 'response_time',
+            'status_code', 'error_message', 'tested_at'
+        ]
+        read_only_fields = ['id', 'tested_at']
+
+class ScanStatsSerializerTC3(serializers.ModelSerializer):
+    class Meta:
+        model = ScanStatsTC3
+        fields = [
+            'total_requests', 'successful_requests', 'failed_requests',
+            'avg_response_time', 'vulnerabilities_by_severity',
+            'vulnerabilities_by_type', 'updated_at'
+        ]
+        read_only_fields = ['updated_at']
+
+class ScanSerializerTC3(serializers.ModelSerializer):
+    vulnerabilities = VulnerabilitySerializerTC3(many=True, read_only=True)
+    history = ScanHistorySerializerTC3(many=True, read_only=True)
+    stats = ScanStatsSerializerTC3(read_only=True)
+    
+    class Meta:
+        model = ScanTC3
+        fields = [
+            'id', 'scan_id', 'status', 'total_apis', 'scanned_apis',
+            'vulnerabilities_found', 'started_at', 'completed_at',
+            'vulnerabilities', 'history', 'stats'
+        ]
+        read_only_fields = ['id', 'started_at', 'completed_at']
+
+class ScanSummarySerializerTC3(serializers.ModelSerializer):
+    class Meta:
+        model = ScanTC3
+        fields = [
+            'id', 'scan_id', 'status', 'total_apis', 'scanned_apis',
+            'vulnerabilities_found', 'started_at', 'completed_at'
+        ]
+        read_only_fields = ['id', 'started_at', 'completed_at']
+
+class VulnerabilitySummarySerializerTC3(serializers.Serializer):
+    total_vulnerabilities = serializers.IntegerField()
+    critical_count = serializers.IntegerField()
+    high_count = serializers.IntegerField()
+    medium_count = serializers.IntegerField()
+    low_count = serializers.IntegerField()
+    vulnerability_types = serializers.DictField()
+    recent_vulnerabilities = VulnerabilitySerializerTC3(many=True)
+
+class ScanFilterSerializerTC3(serializers.Serializer):
+    severity = serializers.ChoiceField(
+        choices=['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'],
+        required=False
+    )
+    vulnerability_type = serializers.ChoiceField(
+        choices=[
+            'VERBOSE_ERRORS', 'DEBUG_MODE', 'STACK_TRACES',
+            'VERSION_DISCLOSURE', 'FRAMEWORK_EXPOSURE'
+        ],
+        required=False
+    )
+    api_method = serializers.ChoiceField(
+        choices=['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
+        required=False
+    )
+    date_from = serializers.DateTimeField(required=False)
+    date_to = serializers.DateTimeField(required=False)

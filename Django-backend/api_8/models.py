@@ -220,3 +220,91 @@ class ScanMetricsTC2(models.Model):
     
     class Meta:
         db_table = 'api_8_scan_metrics_tc2'
+
+
+class ScanTC3(models.Model):
+    SCAN_STATUS_CHOICES = [
+        ('PENDING', 'Pending'),
+        ('RUNNING', 'Running'),
+        ('COMPLETED', 'Completed'),
+        ('FAILED', 'Failed'),
+        ('CANCELLED', 'Cancelled')
+    ]
+    
+    id = models.AutoField(primary_key=True)
+    scan_id = models.IntegerField(unique=True)
+    status = models.CharField(max_length=20, choices=SCAN_STATUS_CHOICES, default='PENDING')
+    total_apis = models.IntegerField(default=0)
+    scanned_apis = models.IntegerField(default=0)
+    vulnerabilities_found = models.IntegerField(default=0)
+    started_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
+    
+    class Meta:
+        db_table = 'api_8_scan_tc3'
+        ordering = ['-started_at']
+
+class VulnerabilityTC3(models.Model):
+    SEVERITY_CHOICES = [
+        ('LOW', 'Low'),
+        ('MEDIUM', 'Medium'), 
+        ('HIGH', 'High'),
+        ('CRITICAL', 'Critical')
+    ]
+    
+    VULNERABILITY_TYPES = [
+        ('VERBOSE_ERRORS', 'Verbose Errors'),
+        ('DEBUG_MODE', 'Debug Mode'),
+        ('STACK_TRACES', 'Stack Traces'),
+        ('VERSION_DISCLOSURE', 'Version Disclosure'),
+        ('FRAMEWORK_EXPOSURE', 'Framework Exposure')
+    ]
+    
+    id = models.AutoField(primary_key=True)
+    scan = models.ForeignKey(ScanTC3, on_delete=models.CASCADE, related_name='vulnerabilities')
+    api_id = models.IntegerField()  # Reference to api_orch_postmanapi.id
+    api_name = models.CharField(max_length=255)
+    api_url = models.URLField()
+    api_method = models.CharField(max_length=10)
+    vulnerability_type = models.CharField(max_length=50, choices=VULNERABILITY_TYPES)
+    severity = models.CharField(max_length=20, choices=SEVERITY_CHOICES)
+    title = models.CharField(max_length=500)
+    description = models.TextField()
+    evidence = models.JSONField()  # Store stack traces, headers, response body
+    recommendation = models.TextField()
+    cve_references = models.JSONField(default=list)
+    discovered_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = 'api_8_vulnerability_tc3'
+        ordering = ['-discovered_at']
+
+class ScanHistoryTC3(models.Model):
+    id = models.AutoField(primary_key=True)
+    scan = models.ForeignKey(ScanTC3, on_delete=models.CASCADE, related_name='history')
+    api_id = models.IntegerField()
+    api_name = models.CharField(max_length=255)
+    status = models.CharField(max_length=50)
+    response_time = models.FloatField(null=True, blank=True)
+    status_code = models.IntegerField(null=True, blank=True)
+    error_message = models.TextField(null=True, blank=True)
+    tested_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = 'api_8_scan_history_tc3'
+        ordering = ['-tested_at']
+
+class ScanStatsTC3(models.Model):
+    id = models.AutoField(primary_key=True)
+    scan = models.OneToOneField(ScanTC3, on_delete=models.CASCADE, related_name='stats')
+    total_requests = models.IntegerField(default=0)
+    successful_requests = models.IntegerField(default=0)
+    failed_requests = models.IntegerField(default=0)
+    avg_response_time = models.FloatField(default=0.0)
+    vulnerabilities_by_severity = models.JSONField(default=dict)
+    vulnerabilities_by_type = models.JSONField(default=dict)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'api_8_scan_stats_tc3'

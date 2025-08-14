@@ -17,7 +17,17 @@ from .views import (
     ScanHistoryViewTC2,
     VulnerabilityDetailViewTC2,
     ScanListViewTC2,
-    CancelScanViewTC2
+    CancelScanViewTC2,
+    StartScanAPIViewTC3,
+    ScanStatusAPIViewTC3,
+    ScanResultsAPIViewTC3,
+    VulnerabilitySummaryAPIViewTC3,
+    ScanStatsAPIViewTC3,
+    ScanHistoryAPIViewTC3,
+    AllScansAPIViewTC3,
+    VulnerabilityDetailAPIViewTC3,
+    DeleteScanAPIViewTC3,
+    CancelScanAPIViewTC3
 )
 
 urlpatterns = [
@@ -43,4 +53,17 @@ urlpatterns = [
     path('analytics-tc2/stats/', ScanStatsViewTC2.as_view(), name='scan-stats'),
     path('scan-tc2/<uuid:scan_id>/history/', ScanHistoryViewTC2.as_view(), name='scan-history'),
     path('history-tc2/', ScanHistoryViewTC2.as_view(), name='global-history'),
+    
+    # TC-3 Excessive Debug Information
+    path('scan-tc3/start/', StartScanAPIViewTC3.as_view(), name='start_scan_tc3'),
+    path('scan-tc3/<int:scan_id>/status/', ScanStatusAPIViewTC3.as_view(), name='scan_status_tc3'),
+    path('scan-tc3/<int:scan_id>/results/', ScanResultsAPIViewTC3.as_view(), name='scan_results_tc3'),
+    path('scan-tc3/<int:scan_id>/stats/', ScanStatsAPIViewTC3.as_view(), name='scan_stats_tc3'),
+    path('scan-tc3/<int:scan_id>/history/', ScanHistoryAPIViewTC3.as_view(), name='scan_history_tc3'),
+    path('scan-tc3/<int:scan_id>/cancel/', CancelScanAPIViewTC3.as_view(), name='cancel_scan_tc3'),
+    path('scan-tc3/<int:scan_id>/delete/', DeleteScanAPIViewTC3.as_view(), name='delete_scan_tc3'),
+    path('vulnerability-tc3/<int:vulnerability_id>/', VulnerabilityDetailAPIViewTC3.as_view(), name='vulnerability_detail_tc3'),
+    path('vulnerability-tc3/summary/', VulnerabilitySummaryAPIViewTC3.as_view(), name='vulnerability_summary_tc3'),
+    path('scan-tc3/<int:scan_id>/vulnerability-tc3/summary/', VulnerabilitySummaryAPIViewTC3.as_view(), name='scan_vulnerability_summary_tc3'),
+    path('scans-tc3/', AllScansAPIViewTC3.as_view(), name='all_scans_tc3'),
 ]
