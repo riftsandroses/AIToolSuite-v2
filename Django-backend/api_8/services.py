@@ -4,7 +4,16 @@ import time
 from typing import Dict, List, Tuple, Optional
 from django.utils import timezone
 from django.db import transaction
-from .models import CORSScanResultTC1, CORSScanSessionTC1
+from .models import CORSScanResultTC1, CORSScanSessionTC1, ScanTC2, VulnerabilityTC2, ScanHistoryTC2, ScanMetricsTC2
+import subprocess
+import requests
+import ssl
+import socket
+from urllib.parse import urlparse
+from .utils.ai_analyzer_tc2 import AIAnalyzerTC2
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class CORSScannerServiceTC1:
@@ -314,3 +323,385 @@ fetch('{url}', {{
             error_message=result.get('error_message', ''),
             raw_response_headers=result.get('raw_response_headers', {})
         )
+
+
+class TLSScanServiceTC2:
+    def __init__(self):
+        self.ai_analyzer = AIAnalyzerTC2()
+    
+    @transaction.atomic
+    def initiate_scan(self, scan_id, user=None):
+        """Initialize a new TLS security scan"""
+        try:
+            # Get APIs from api_orch_postmanapi table
+            from django.db import connection
+            
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    SELECT "id", "name", "method", "url", "headers", "body", "authorization", 
+                           "query_params", "original_url", "created_at", "scan_id"
+                    FROM api_orch_postmanapi 
+                    WHERE "scan_id" = %s
+                """, [scan_id])
+                
+                apis = cursor.fetchall()
+            
+            if not apis:
+                raise ValueError(f"No APIs found for scan_id: {scan_id}")
+            
+            # Create scan record
+            scan = ScanTC2.objects.create(
+                scan_id=scan_id,
+                total_apis=len(apis),
+                created_by=user,
+                status='pending'
+            )
+            
+            # Create metrics record
+            ScanMetricsTC2.objects.create(scan=scan)
+            
+            # Log scan initiation
+            ScanHistoryTC2.objects.create(
+                scan=scan,
+                action='scan_initiated',
+                description=f'TLS security scan initiated for {len(apis)} APIs',
+                details={'total_apis': len(apis), 'scan_id': scan_id}
+            )
+            
+            return scan, apis
+            
+        except Exception as e:
+            logger.error(f"Failed to initiate scan: {str(e)}")
+            raise
+    
+    def perform_tls_analysis(self, api_data, scan):
+        """Perform TLS/Transport security analysis on a single API"""
+        try:
+            api_id, name, method, url, headers, body, auth, query_params, original_url, created_at, scan_id = api_data
+            
+            # Parse URL
+            parsed_url = urlparse(url)
+            hostname = parsed_url.hostname
+            port = parsed_url.port or (443 if parsed_url.scheme == 'https' else 80)
+            
+            vulnerabilities = []
+            
+            # Test HTTP availability
+            http_available = self._test_http_availability(url)
+            
+            # Test HTTPS availability and TLS configuration
+            https_available, tls_info = self._test_https_tls(hostname, port)
+            
+            # Get security headers
+            security_headers = self._check_security_headers(url)
+            
+            # Analyze findings with AI
+            analysis_data = {
+                'api_name': name,
+                'url': url,
+                'method': method,
+                'http_available': http_available,
+                'https_available': https_available,
+                'tls_info': tls_info,
+                'security_headers': security_headers
+            }
+            
+            ai_analysis = self.ai_analyzer.analyze_tls_security(analysis_data)
+            
+            # Create vulnerability records based on findings
+            if http_available and parsed_url.scheme == 'http':
+                vulnerabilities.append(self._create_http_vulnerability(
+                    scan, api_id, name, url, method, ai_analysis
+                ))
+            
+            if tls_info.get('weak_protocols'):
+                vulnerabilities.append(self._create_weak_tls_vulnerability(
+                    scan, api_id, name, url, method, tls_info, ai_analysis
+                ))
+            
+            if not security_headers.get('hsts') and https_available:
+                vulnerabilities.append(self._create_missing_hsts_vulnerability(
+                    scan, api_id, name, url, method, security_headers, ai_analysis
+                ))
+            
+            if security_headers.get('missing_headers'):
+                vulnerabilities.append(self._create_missing_security_headers_vulnerability(
+                    scan, api_id, name, url, method, security_headers, ai_analysis
+                ))
+            
+            # Update scan progress
+            scan.scanned_apis += 1
+            scan.vulnerabilities_found += len(vulnerabilities)
+            scan.save()
+            
+            return vulnerabilities
+            
+        except Exception as e:
+            logger.error(f"TLS analysis failed for API {api_data[0]}: {str(e)}")
+            return []
+    
+    def _test_http_availability(self, url):
+        """Test if API is available over HTTP"""
+        try:
+            http_url = url.replace('https://', 'http://') if url.startswith('https://') else url
+            response = requests.get(http_url, timeout=10, allow_redirects=False)
+            return True
+        except:
+            return False
+    
+    def _test_https_tls(self, hostname, port):
+        """Test HTTPS availability and TLS configuration"""
+        try:
+            # Use testssl.sh or custom SSL analysis
+            result = self._run_testssl(hostname, port)
+            
+            if result:
+                return True, result
+            
+            # Fallback to basic SSL check
+            context = ssl.create_default_context()
+            with socket.create_connection((hostname, port), timeout=10) as sock:
+                with context.wrap_socket(sock, server_hostname=hostname) as ssock:
+                    cert = ssock.getpeercert()
+                    cipher = ssock.cipher()
+                    protocol = ssock.version()
+                    
+                    return True, {
+                        'certificate': cert,
+                        'cipher': cipher,
+                        'protocol': protocol,
+                        'weak_protocols': protocol in ['SSLv2', 'SSLv3', 'TLSv1', 'TLSv1.1']
+                    }
+        except:
+            return False, {}
+    
+    def _run_testssl(self, hostname, port):
+        """Run testssl.sh for comprehensive TLS analysis"""
+        try:
+            cmd = [
+                'testssl.sh',
+                '--jsonfile-pretty', '/tmp/testssl_output.json',
+                '--quiet',
+                f'{hostname}:{port}'
+            ]
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            
+            if result.returncode == 0:
+                with open('/tmp/testssl_output.json', 'r') as f:
+                    return json.load(f)
+        except:
+            pass
+        return None
+    
+    def _check_security_headers(self, url):
+        """Check for security headers"""
+        try:
+            response = requests.head(url, timeout=10, verify=False)
+            headers = response.headers
+            
+            security_headers = {
+                'hsts': 'strict-transport-security' in headers,
+                'content_type_options': 'x-content-type-options' in headers,
+                'csp': 'content-security-policy' in headers,
+                'referrer_policy': 'referrer-policy' in headers,
+                'xss_protection': 'x-xss-protection' in headers,
+                'frame_options': 'x-frame-options' in headers
+            }
+            
+            missing_headers = [k for k, v in security_headers.items() if not v]
+            security_headers['missing_headers'] = missing_headers
+            security_headers['all_headers'] = dict(headers)
+            
+            return security_headers
+        except:
+            return {'missing_headers': ['all'], 'error': 'Failed to fetch headers'}
+    
+    def _create_http_vulnerability(self, scan, api_id, name, url, method, ai_analysis):
+        """Create vulnerability record for HTTP availability"""
+        return VulnerabilityTC2.objects.create(
+            scan=scan,
+            api_id=api_id,
+            api_name=name,
+            api_url=url,
+            api_method=method,
+            title="API Available Over HTTP",
+            description="The API endpoint is accessible over unencrypted HTTP, exposing data to interception.",
+            severity='high',
+            supports_http=True,
+            evidence="API responds to HTTP requests without redirecting to HTTPS",
+            recommendation="Configure the server to redirect all HTTP requests to HTTPS or disable HTTP entirely.",
+            ai_analysis=ai_analysis.get('http_analysis', ''),
+            confidence_score=ai_analysis.get('confidence_scores', {}).get('http', 0.9)
+        )
+    
+    def _create_weak_tls_vulnerability(self, scan, api_id, name, url, method, tls_info, ai_analysis):
+        """Create vulnerability record for weak TLS configuration"""
+        return VulnerabilityTC2.objects.create(
+            scan=scan,
+            api_id=api_id,
+            api_name=name,
+            api_url=url,
+            api_method=method,
+            title="Weak TLS Configuration",
+            description="The API uses deprecated or weak TLS protocols/ciphers.",
+            severity='medium' if 'TLSv1.1' in str(tls_info) else 'high',
+            supports_https=True,
+            tls_versions=tls_info,
+            evidence=f"Supports deprecated protocols: {tls_info.get('weak_protocols')}",
+            recommendation="Disable support for TLS 1.0, 1.1 and weak cipher suites. Use only TLS 1.2+",
+            ai_analysis=ai_analysis.get('tls_analysis', ''),
+            confidence_score=ai_analysis.get('confidence_scores', {}).get('tls', 0.8)
+        )
+    
+    def _create_missing_hsts_vulnerability(self, scan, api_id, name, url, method, security_headers, ai_analysis):
+        """Create vulnerability record for missing HSTS header"""
+        return VulnerabilityTC2.objects.create(
+            scan=scan,
+            api_id=api_id,
+            api_name=name,
+            api_url=url,
+            api_method=method,
+            title="Missing HSTS Header",
+            description="The API does not implement HTTP Strict Transport Security (HSTS).",
+            severity='medium',
+            supports_https=True,
+            hsts_enabled=False,
+            security_headers=security_headers,
+            evidence="Strict-Transport-Security header not present in response",
+            recommendation="Implement HSTS header to prevent SSL stripping attacks.",
+            ai_analysis=ai_analysis.get('hsts_analysis', ''),
+            confidence_score=ai_analysis.get('confidence_scores', {}).get('hsts', 0.7)
+        )
+    
+    def _create_missing_security_headers_vulnerability(self, scan, api_id, name, url, method, security_headers, ai_analysis):
+        """Create vulnerability record for missing security headers"""
+        missing = security_headers.get('missing_headers', [])
+        return VulnerabilityTC2.objects.create(
+            scan=scan,
+            api_id=api_id,
+            api_name=name,
+            api_url=url,
+            api_method=method,
+            title="Missing Security Headers",
+            description=f"The API is missing important security headers: {', '.join(missing)}",
+            severity='low',
+            security_headers=security_headers,
+            evidence=f"Missing headers: {missing}",
+            recommendation="Implement missing security headers to improve API security posture.",
+            ai_analysis=ai_analysis.get('headers_analysis', ''),
+            confidence_score=ai_analysis.get('confidence_scores', {}).get('headers', 0.6)
+        )
+    
+    @transaction.atomic
+    def finalize_scan(self, scan):
+        """Finalize the scan and update metrics"""
+        try:
+            scan.status = 'completed'
+            scan.completed_at = timezone.now()
+            scan.save()
+            
+            # Update metrics
+            metrics = scan.metrics
+            vulnerabilities = scan.vulnerabilities.all()
+            
+            metrics.critical_count = vulnerabilities.filter(severity='critical').count()
+            metrics.high_count = vulnerabilities.filter(severity='high').count()
+            metrics.medium_count = vulnerabilities.filter(severity='medium').count()
+            metrics.low_count = vulnerabilities.filter(severity='low').count()
+            metrics.info_count = vulnerabilities.filter(severity='info').count()
+            
+            metrics.http_only_apis = vulnerabilities.filter(supports_http=True, supports_https=False).count()
+            metrics.https_only_apis = vulnerabilities.filter(supports_http=False, supports_https=True).count()
+            metrics.mixed_protocol_apis = vulnerabilities.filter(supports_http=True, supports_https=True).count()
+            metrics.weak_tls_apis = vulnerabilities.filter(title__icontains='weak tls').count()
+            metrics.missing_security_headers = vulnerabilities.filter(title__icontains='missing').count()
+            
+            duration = (scan.completed_at - scan.started_at).total_seconds()
+            metrics.total_duration_seconds = duration
+            if scan.total_apis > 0:
+                metrics.average_response_time = duration / scan.total_apis
+            
+            metrics.save()
+            
+            # Log completion
+            ScanHistoryTC2.objects.create(
+                scan=scan,
+                action='scan_completed',
+                description=f'TLS security scan completed. Found {scan.vulnerabilities_found} vulnerabilities.',
+                details={
+                    'duration_seconds': duration,
+                    'vulnerabilities_by_severity': {
+                        'critical': metrics.critical_count,
+                        'high': metrics.high_count,
+                        'medium': metrics.medium_count,
+                        'low': metrics.low_count,
+                        'info': metrics.info_count
+                    }
+                }
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to finalize scan {scan.id}: {str(e)}")
+            scan.status = 'failed'
+            scan.completed_at = timezone.now()
+            scan.save()
+
+class ScanAnalyticsServiceTC2:
+    """Service for generating scan analytics and statistics"""
+    
+    def get_scan_statistics(self):
+        """Get comprehensive scan statistics"""
+        from django.db.models import Count, Avg, Q
+        from datetime import datetime, timedelta
+        
+        scans = ScanTC2.objects.all()
+        vulnerabilities = VulnerabilityTC2.objects.all()
+        
+        # Basic counts
+        total_scans = scans.count()
+        active_scans = scans.filter(status__in=['pending', 'running']).count()
+        completed_scans = scans.filter(status='completed').count()
+        failed_scans = scans.filter(status='failed').count()
+        
+        # Vulnerability counts
+        total_vulnerabilities = vulnerabilities.count()
+        critical_vulnerabilities = vulnerabilities.filter(severity='critical').count()
+        high_vulnerabilities = vulnerabilities.filter(severity='high').count()
+        medium_vulnerabilities = vulnerabilities.filter(severity='medium').count()
+        low_vulnerabilities = vulnerabilities.filter(severity='low').count()
+        
+        # Average scan duration
+        avg_duration = ScanMetricsTC2.objects.aggregate(
+            avg_duration=Avg('total_duration_seconds')
+        )['avg_duration'] or 0
+        
+        # Most common vulnerabilities
+        common_vulns = vulnerabilities.values('title').annotate(
+            count=Count('id')
+        ).order_by('-count')[:10]
+        
+        # Vulnerability trends (last 30 days)
+        thirty_days_ago = datetime.now() - timedelta(days=30)
+        daily_vulns = vulnerabilities.filter(
+            created_at__gte=thirty_days_ago
+        ).extra(
+            select={'day': 'date(created_at)'}
+        ).values('day').annotate(count=Count('id')).order_by('day')
+        
+        trends = {day['day'].strftime('%Y-%m-%d'): day['count'] for day in daily_vulns}
+        
+        return {
+            'total_scans': total_scans,
+            'active_scans': active_scans,
+            'completed_scans': completed_scans,
+            'failed_scans': failed_scans,
+            'total_vulnerabilities': total_vulnerabilities,
+            'critical_vulnerabilities': critical_vulnerabilities,
+            'high_vulnerabilities': high_vulnerabilities,
+            'medium_vulnerabilities': medium_vulnerabilities,
+            'low_vulnerabilities': low_vulnerabilities,
+            'average_scan_duration': avg_duration,
+            'most_common_vulnerabilities': list(common_vulns),
+            'vulnerability_trends': trends
+        }

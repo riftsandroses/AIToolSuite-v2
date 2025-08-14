@@ -1,6 +1,7 @@
 from django.db import models
 from django.utils import timezone
-
+from django.contrib.auth.models import User
+import uuid
 
 class CORSScanResultTC1(models.Model):
     SEVERITY_CHOICES = [
@@ -101,3 +102,121 @@ class CORSScanSessionTC1(models.Model):
 
     def __str__(self):
         return f"CORS Scan Session {self.scan_id} ({self.status})"
+
+
+class ScanTC2(models.Model):
+    SCAN_STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('running', 'Running'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+        ('cancelled', 'Cancelled'),
+    ]
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    scan_id = models.IntegerField()  # Reference to the original scan from api_orch
+    status = models.CharField(max_length=20, choices=SCAN_STATUS_CHOICES, default='pending')
+    started_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    total_apis = models.IntegerField(default=0)
+    scanned_apis = models.IntegerField(default=0)
+    vulnerabilities_found = models.IntegerField(default=0)
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
+    
+    class Meta:
+        db_table = 'api_8_scan_tc2'
+        ordering = ['-started_at']
+
+class VulnerabilityTC2(models.Model):
+    SEVERITY_CHOICES = [
+        ('critical', 'Critical'),
+        ('high', 'High'),
+        ('medium', 'Medium'),
+        ('low', 'Low'),
+        ('info', 'Info'),
+    ]
+    
+    STATUS_CHOICES = [
+        ('open', 'Open'),
+        ('fixed', 'Fixed'),
+        ('false_positive', 'False Positive'),
+        ('accepted_risk', 'Accepted Risk'),
+    ]
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    scan = models.ForeignKey(ScanTC2, on_delete=models.CASCADE, related_name='vulnerabilities')
+    api_id = models.IntegerField()  # Reference to api_orch_postmanapi.id
+    api_name = models.CharField(max_length=255)
+    api_url = models.URLField()
+    api_method = models.CharField(max_length=10)
+    
+    vulnerability_type = models.CharField(max_length=100, default='TLS/Transport Security')
+    title = models.CharField(max_length=255)
+    description = models.TextField()
+    severity = models.CharField(max_length=20, choices=SEVERITY_CHOICES)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='open')
+    
+    # TLS/Security specific fields
+    supports_http = models.BooleanField(default=False)
+    supports_https = models.BooleanField(default=False)
+    tls_versions = models.JSONField(default=dict)  # {'supported': ['TLS1.2', 'TLS1.3'], 'deprecated': ['TLS1.0']}
+    cipher_suites = models.JSONField(default=dict)
+    certificate_info = models.JSONField(default=dict)
+    security_headers = models.JSONField(default=dict)
+    hsts_enabled = models.BooleanField(default=False)
+    
+    # Evidence and recommendations
+    evidence = models.TextField(blank=True)
+    recommendation = models.TextField(blank=True)
+    exploit_details = models.TextField(blank=True)
+    
+    # AI Analysis
+    ai_analysis = models.TextField(blank=True)
+    confidence_score = models.FloatField(default=0.0)  # 0.0 to 1.0
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'api_8_vulnerability_tc2'
+        ordering = ['-created_at']
+
+class ScanHistoryTC2(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    scan = models.ForeignKey(ScanTC2, on_delete=models.CASCADE, related_name='history')
+    action = models.CharField(max_length=100)
+    description = models.TextField()
+    timestamp = models.DateTimeField(auto_now_add=True)
+    details = models.JSONField(default=dict)
+    
+    class Meta:
+        db_table = 'api_8_scan_history_tc2'
+        ordering = ['-timestamp']
+
+class ScanMetricsTC2(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    scan = models.OneToOneField(ScanTC2, on_delete=models.CASCADE, related_name='metrics')
+    
+    # Performance metrics
+    total_duration_seconds = models.FloatField(default=0.0)
+    average_response_time = models.FloatField(default=0.0)
+    
+    # Security findings breakdown
+    critical_count = models.IntegerField(default=0)
+    high_count = models.IntegerField(default=0)
+    medium_count = models.IntegerField(default=0)
+    low_count = models.IntegerField(default=0)
+    info_count = models.IntegerField(default=0)
+    
+    # TLS specific metrics
+    http_only_apis = models.IntegerField(default=0)
+    https_only_apis = models.IntegerField(default=0)
+    mixed_protocol_apis = models.IntegerField(default=0)
+    weak_tls_apis = models.IntegerField(default=0)
+    missing_security_headers = models.IntegerField(default=0)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'api_8_scan_metrics_tc2'

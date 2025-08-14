@@ -8,7 +8,16 @@ from .views import (
     CORSScanHistoryTC1View,
     CORSResultDetailTC1View,
     CORSScanDeleteTC1View,
-    CORSScanRetryTC1View
+    CORSScanRetryTC1View,
+    InitiateTLSScanViewTC2,
+    ScanStatusViewTC2,
+    ScanResultsViewTC2,
+    VulnerabilitySummaryViewTC2,
+    ScanStatsViewTC2,
+    ScanHistoryViewTC2,
+    VulnerabilityDetailViewTC2,
+    ScanListViewTC2,
+    CancelScanViewTC2
 )
 
 urlpatterns = [
@@ -22,4 +31,16 @@ urlpatterns = [
     path('cors/result/<int:result_id>/', CORSResultDetailTC1View.as_view(), name='cors_result_detail_tc1'),
     path('cors/scan/delete/', CORSScanDeleteTC1View.as_view(), name='cors_scan_delete_tc1'),
     path('cors/scan/retry/', CORSScanRetryTC1View.as_view(), name='cors_scan_retry_tc1'),
+
+    # TC-2 TLS & Security Headers Misconfiguration    
+    path('scan-tc2/initiate/', InitiateTLSScanViewTC2.as_view(), name='initiate-scan'),
+    path('scan-tc2/<uuid:scan_id>/status/', ScanStatusViewTC2.as_view(), name='scan-status'),
+    path('scan-tc2/<uuid:scan_id>/results/', ScanResultsViewTC2.as_view(), name='scan-results'),
+    path('scan-tc2/<uuid:scan_id>/cancel/', CancelScanViewTC2.as_view(), name='cancel-scan'),
+    path('scans-tc2/', ScanListViewTC2.as_view(), name='scan-list'),
+    path('vulnerabilities-tc2/summary/', VulnerabilitySummaryViewTC2.as_view(), name='vulnerability-summary'),
+    path('vulnerability-tc2/<uuid:vulnerability_id>/', VulnerabilityDetailViewTC2.as_view(), name='vulnerability-detail'),
+    path('analytics-tc2/stats/', ScanStatsViewTC2.as_view(), name='scan-stats'),
+    path('scan-tc2/<uuid:scan_id>/history/', ScanHistoryViewTC2.as_view(), name='scan-history'),
+    path('history-tc2/', ScanHistoryViewTC2.as_view(), name='global-history'),
 ]

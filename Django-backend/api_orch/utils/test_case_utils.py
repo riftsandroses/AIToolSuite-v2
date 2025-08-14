@@ -62,13 +62,9 @@ class TestCaseDefinitions:
                 'TC-1': 'Server Side Request Forgery'
             },
             'API8:2023': {
-                'TC-1': 'Security Misconfiguration',
-                'TC-2': 'Server Side Request Forgery',
-                'TC-3': 'Unrestricted Access to Sensitive Business Flows',
-                'TC-4': 'Broken Function Level Authorization',
-                'TC-5': 'Unrestricted Resource Consumption',
-                'TC-6': 'Broken Authentication',
-                'TC-7': 'Broken Object Property Level Authorization'
+                'TC-1': 'CORS Headers Misconfiguration',
+                'TC-2': 'TLS & Security Headers Misconfiguration',
+                'TC-3': 'Excessive Debug Information'
             },
             'API9:2023': {
                 'TC-1': 'Unlisted Endpoints',

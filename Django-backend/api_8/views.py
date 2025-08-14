@@ -7,16 +7,25 @@ from rest_framework.response import Response
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.pagination import PageNumberPagination
+from django.shortcuts import get_object_or_404
 from datetime import timedelta
 import threading
-
-from .models import CORSScanResultTC1, CORSScanSessionTC1
+from .models import CORSScanResultTC1, CORSScanSessionTC1, ScanTC2, VulnerabilityTC2, ScanHistoryTC2, ScanMetricsTC2
 from .serializers import (
     CORSScanRequestTC1Serializer, CORSScanResultTC1Serializer,
     CORSScanSessionTC1Serializer, VulnerabilitySummaryTC1Serializer,
-    ScanStatsTC1Serializer
+    ScanStatsTC1Serializer, ScanCreateSerializerTC2, 
+    ScanSerializerTC2, ScanStatusSerializerTC2,
+    ScanStatsSerializerTC2, VulnerabilitySerializerTC2, 
+    VulnerabilitySummarySerializerTC2, ScanResultsSerializerTC2, 
+    VulnerabilityFilterSerializerTC2, ScanHistorySerializerTC2
 )
-from .services import CORSScannerServiceTC1
+from .services import CORSScannerServiceTC1, TLSScanServiceTC2, ScanAnalyticsServiceTC2
+from django.db import connection
+import logging
+
+
+logger = logging.getLogger(__name__)
 
 
 class StandardResultsSetPagination(PageNumberPagination):
@@ -497,3 +506,385 @@ class CORSScanRetryTC1View(APIView):
             
         except Exception:
             return ''
+
+
+class StandardResultsSetPaginationTC2(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+class InitiateTLSScanViewTC2(APIView):
+    """
+    Initiate a new TLS security scan for the given scan_id
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        serializer = ScanCreateSerializerTC2(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        scan_id = serializer.validated_data['scan_id']
+        
+        try:
+            # Get JWT token from api_orch_scantokens
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    SELECT access_token FROM api_orch_scantokens 
+                    WHERE scan_id = %s ORDER BY created_at DESC LIMIT 1
+                """, [scan_id])
+                
+                token_result = cursor.fetchone()
+                if not token_result:
+                    return Response(
+                        {'error': f'No access token found for scan_id: {scan_id}'}, 
+                        status=status.HTTP_404_NOT_FOUND
+                    )
+            
+            # Check if scan already exists
+            existing_scan = ScanTC2.objects.filter(scan_id=scan_id).first()
+            if existing_scan and existing_scan.status in ['pending', 'running']:
+                return Response(
+                    {'error': 'Scan already in progress for this scan_id'},
+                    status=status.HTTP_409_CONFLICT
+                )
+            
+            # Initialize scan
+            scan_service = TLSScanServiceTC2()
+            scan, apis = scan_service.initiate_scan(scan_id, request.user)
+            
+            # Start scan in background thread
+            scan_thread = threading.Thread(
+                target=self._execute_scan_background,
+                args=(scan, apis, scan_service)
+            )
+            scan_thread.daemon = True
+            scan_thread.start()
+            
+            return Response({
+                'message': 'TLS security scan initiated successfully',
+                'scan_id': str(scan.id),
+                'original_scan_id': scan_id,
+                'total_apis': scan.total_apis,
+                'status': scan.status
+            }, status=status.HTTP_201_CREATED)
+            
+        except ValueError as e:
+            return Response({'error': str(e)}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            logger.error(f"Failed to initiate scan: {str(e)}")
+            return Response(
+                {'error': 'Failed to initiate scan'}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    def _execute_scan_background(self, scan, apis, scan_service):
+        """Execute the actual scanning in background"""
+        try:
+            scan.status = 'running'
+            scan.save()
+            
+            for api_data in apis:
+                try:
+                    vulnerabilities = scan_service.perform_tls_analysis(api_data, scan)
+                    logger.info(f"Scanned API {api_data[0]}, found {len(vulnerabilities)} vulnerabilities")
+                except Exception as e:
+                    logger.error(f"Failed to scan API {api_data[0]}: {str(e)}")
+                    continue
+            
+            scan_service.finalize_scan(scan)
+            logger.info(f"TLS scan {scan.id} completed successfully")
+            
+        except Exception as e:
+            logger.error(f"Background scan failed: {str(e)}")
+            scan.status = 'failed'
+            scan.completed_at = timezone.now()
+            scan.save()
+
+class ScanStatusViewTC2(APIView):
+    """
+    Get the current status of a scan
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, scan_id):
+        scan = get_object_or_404(ScanTC2, id=scan_id)
+        serializer = ScanStatusSerializerTC2(scan)
+        return Response(serializer.data)
+
+class ScanResultsViewTC2(APIView):
+    """
+    Get scan results with filtering capabilities
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    pagination_class = StandardResultsSetPaginationTC2
+    
+    def get(self, request, scan_id):
+        scan = get_object_or_404(ScanTC2, id=scan_id)
+        
+        # Get vulnerabilities queryset
+        vulnerabilities = scan.vulnerabilities.all()
+        
+        # Apply filters
+        filter_serializer = VulnerabilityFilterSerializerTC2(data=request.query_params)
+        filters_applied = {}
+        
+        if filter_serializer.is_valid():
+            filters = filter_serializer.validated_data
+            
+            if filters.get('severity'):
+                vulnerabilities = vulnerabilities.filter(severity__in=filters['severity'])
+                filters_applied['severity'] = filters['severity']
+            
+            if filters.get('status'):
+                vulnerabilities = vulnerabilities.filter(status__in=filters['status'])
+                filters_applied['status'] = filters['status']
+            
+            if filters.get('api_method'):
+                vulnerabilities = vulnerabilities.filter(api_method__iexact=filters['api_method'])
+                filters_applied['api_method'] = filters['api_method']
+            
+            if filters.get('api_url_contains'):
+                vulnerabilities = vulnerabilities.filter(api_url__icontains=filters['api_url_contains'])
+                filters_applied['api_url_contains'] = filters['api_url_contains']
+            
+            if filters.get('confidence_score_min'):
+                vulnerabilities = vulnerabilities.filter(confidence_score__gte=filters['confidence_score_min'])
+                filters_applied['confidence_score_min'] = filters['confidence_score_min']
+            
+            if filters.get('date_from'):
+                vulnerabilities = vulnerabilities.filter(created_at__gte=filters['date_from'])
+                filters_applied['date_from'] = filters['date_from']
+            
+            if filters.get('date_to'):
+                vulnerabilities = vulnerabilities.filter(created_at__lte=filters['date_to'])
+                filters_applied['date_to'] = filters['date_to']
+            
+            if filters.get('has_exploit') is not None:
+                if filters['has_exploit']:
+                    vulnerabilities = vulnerabilities.exclude(exploit_details='')
+                else:
+                    vulnerabilities = vulnerabilities.filter(exploit_details='')
+                filters_applied['has_exploit'] = filters['has_exploit']
+        
+        # Pagination
+        paginator = self.pagination_class()
+        paginated_vulnerabilities = paginator.paginate_queryset(vulnerabilities, request)
+        
+        # Serialize data
+        scan_serializer = ScanSerializerTC2(scan)
+        vuln_serializer = VulnerabilitySerializerTC2(paginated_vulnerabilities, many=True)
+        
+        response_data = {
+            'scan': scan_serializer.data,
+            'vulnerabilities': vuln_serializer.data,
+            'total_vulnerabilities': scan.vulnerabilities.count(),
+            'filtered_count': vulnerabilities.count(),
+            'filters_applied': filters_applied
+        }
+        
+        return paginator.get_paginated_response(response_data)
+
+class VulnerabilitySummaryViewTC2(APIView):
+    """
+    Get a summary of vulnerabilities across all scans
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    pagination_class = StandardResultsSetPaginationTC2
+    
+    def get(self, request):
+        vulnerabilities = VulnerabilityTC2.objects.select_related('scan').all()
+        
+        # Apply filters similar to scan results
+        filter_serializer = VulnerabilityFilterSerializerTC2(data=request.query_params)
+        
+        if filter_serializer.is_valid():
+            filters = filter_serializer.validated_data
+            
+            if filters.get('severity'):
+                vulnerabilities = vulnerabilities.filter(severity__in=filters['severity'])
+            
+            if filters.get('status'):
+                vulnerabilities = vulnerabilities.filter(status__in=filters['status'])
+            
+            # Add scan_id filter
+            scan_id = request.query_params.get('scan_id')
+            if scan_id:
+                vulnerabilities = vulnerabilities.filter(scan__scan_id=scan_id)
+            
+            # Add search functionality
+            search = request.query_params.get('search')
+            if search:
+                vulnerabilities = vulnerabilities.filter(
+                    Q(title__icontains=search) |
+                    Q(api_name__icontains=search) |
+                    Q(api_url__icontains=search) |
+                    Q(description__icontains=search)
+                )
+        
+        # Order by severity and creation date
+        severity_order = ['critical', 'high', 'medium', 'low', 'info']
+        case_statements = ' '.join([f"WHEN severity='{s}' THEN {i}" for i, s in enumerate(severity_order)])
+        vulnerabilities = vulnerabilities.extra(
+            select={'severity_order': f"CASE {case_statements} END"}
+        ).order_by('severity_order', '-created_at')
+        
+        # Pagination
+        paginator = self.pagination_class()
+        paginated_vulnerabilities = paginator.paginate_queryset(vulnerabilities, request)
+        
+        serializer = VulnerabilitySummarySerializerTC2(paginated_vulnerabilities, many=True)
+        return paginator.get_paginated_response(serializer.data)
+
+class ScanStatsViewTC2(APIView):
+    """
+    Get comprehensive scan statistics and analytics
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        analytics_service = ScanAnalyticsServiceTC2()
+        stats = analytics_service.get_scan_statistics()
+        
+        serializer = ScanStatsSerializerTC2(stats)
+        return Response(serializer.data)
+
+class ScanHistoryViewTC2(APIView):
+    """
+    Get scan history and audit trail
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    pagination_class = StandardResultsSetPaginationTC2
+    
+    def get(self, request, scan_id=None):
+        if scan_id:
+            scan = get_object_or_404(ScanTC2, id=scan_id)
+            history = scan.history.all()
+        else:
+            history = ScanHistoryTC2.objects.select_related('scan').all()
+        
+        # Filter by action type
+        action = request.query_params.get('action')
+        if action:
+            history = history.filter(action__icontains=action)
+        
+        # Filter by date range
+        date_from = request.query_params.get('date_from')
+        if date_from:
+            history = history.filter(timestamp__gte=date_from)
+        
+        date_to = request.query_params.get('date_to')
+        if date_to:
+            history = history.filter(timestamp__lte=date_to)
+        
+        # Pagination
+        paginator = self.pagination_class()
+        paginated_history = paginator.paginate_queryset(history, request)
+        
+        serializer = ScanHistorySerializerTC2(paginated_history, many=True)
+        return paginator.get_paginated_response(serializer.data)
+
+class VulnerabilityDetailViewTC2(APIView):
+    """
+    Get detailed information about a specific vulnerability
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, vulnerability_id):
+        vulnerability = get_object_or_404(VulnerabilityTC2, id=vulnerability_id)
+        serializer = VulnerabilitySerializerTC2(vulnerability)
+        return Response(serializer.data)
+    
+    def patch(self, request, vulnerability_id):
+        """Update vulnerability status"""
+        vulnerability = get_object_or_404(VulnerabilityTC2, id=vulnerability_id)
+        
+        allowed_updates = ['status', 'recommendation', 'exploit_details']
+        update_data = {k: v for k, v in request.data.items() if k in allowed_updates}
+        
+        serializer = VulnerabilitySerializerTC2(vulnerability, data=update_data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class ScanListViewTC2(APIView):
+    """
+    List all scans with filtering and search
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    pagination_class = StandardResultsSetPaginationTC2
+    
+    def get(self, request):
+        scans = ScanTC2.objects.select_related('created_by').prefetch_related('metrics').all()
+        
+        # Filter by status
+        status_filter = request.query_params.get('status')
+        if status_filter:
+            scans = scans.filter(status=status_filter)
+        
+        # Filter by scan_id
+        scan_id = request.query_params.get('scan_id')
+        if scan_id:
+            scans = scans.filter(scan_id=scan_id)
+        
+        # Filter by date range
+        date_from = request.query_params.get('date_from')
+        if date_from:
+            scans = scans.filter(started_at__gte=date_from)
+        
+        date_to = request.query_params.get('date_to')
+        if date_to:
+            scans = scans.filter(started_at__lte=date_to)
+        
+        # Order by creation date (newest first)
+        scans = scans.order_by('-started_at')
+        
+        # Pagination
+        paginator = self.pagination_class()
+        paginated_scans = paginator.paginate_queryset(scans, request)
+        
+        serializer = ScanSerializerTC2(paginated_scans, many=True)
+        return paginator.get_paginated_response(serializer.data)
+
+class CancelScanViewTC2(APIView):
+    """
+    Cancel a running scan
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request, scan_id):
+        scan = get_object_or_404(ScanTC2, id=scan_id)
+        
+        if scan.status not in ['pending', 'running']:
+            return Response(
+                {'error': 'Can only cancel pending or running scans'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        scan.status = 'cancelled'
+        scan.completed_at = timezone.now()
+        scan.save()
+        
+        # Log cancellation
+        ScanHistoryTC2.objects.create(
+            scan=scan,
+            action='scan_cancelled',
+            description=f'Scan cancelled by {request.user.username}',
+            details={'cancelled_by': request.user.username}
+        )
+        
+        return Response({
+            'message': 'Scan cancelled successfully',
+            'scan_id': str(scan.id),
+            'status': scan.status
+        })

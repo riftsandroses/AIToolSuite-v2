@@ -308,6 +308,11 @@ LOGGING = {
             'level': 'INFO',
             'propagate': True,
         },
+        'api_8': {
+            'handlers': ['file', 'console'],
+            'level': 'INFO',
+            'propagate': True,
+        },
     },
 }
 
@@ -342,11 +347,24 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'aitm.tasks.cleanup_expired_containers',
         'schedule': 3600.0,
     },
+    'cleanup-old-scans': {
+        'task': 'api_8.tasks.cleanup_old_scans_tc2',
+        'schedule': 86400.0,  # Run daily
+    },
+    'update-vulnerability-intelligence': {
+        'task': 'api_8.tasks.update_vulnerability_intelligence_tc2',
+        'schedule': 604800.0,  # Run weekly
+    },
 }
 CELERYD_FORCE_EXECV = True
 
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')  # If using HTTPS
 USE_X_FORWARDED_HOST = True
+
+# Security Headers for API responses
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_BROWSER_XSS_FILTER = True
+X_FRAME_OPTIONS = 'DENY'
 
 # hCaptcha Configuration
 HCAPTCHA_SITE_KEY = os.environ.get('HCAPTCHA_SITE_KEY')
@@ -408,4 +426,14 @@ CORS_SCANNER_SETTINGS = {
         'MEDIUM': 4.0,
         'LOW': 2.0,
     }
+}
+
+# API-8 TC-2 TLS Scanner Configuration
+API_8_CONFIG = {
+    'MAX_CONCURRENT_SCANS': 5,
+    'SCAN_TIMEOUT_SECONDS': 3600,  # 1 hour max per scan
+    'API_TIMEOUT_SECONDS': 30,     # 30 seconds per API test
+    'ENABLE_AI_ANALYSIS': True,
+    'TESTSSL_PATH': '/usr/local/bin/testssl.sh',  # Path to testssl.sh
+    'REPORT_RETENTION_DAYS': 180,  # Keep reports for 6 months
 }
