@@ -15,13 +15,7 @@ class TestCaseDefinitions:
                 'TC-7': 'Security Misconfiguration'
             },
             'API2:2023': {
-                'TC-1': 'Broken Authentication',
-                'TC-2': 'Unrestricted Resource Consumption',
-                'TC-3': 'Broken Object Property Level Authorization',
-                'TC-4': 'Unrestricted Access to Sensitive Business Flows',
-                'TC-5': 'Server Side Request Forgery',
-                'TC-6': 'Security Misconfiguration',
-                'TC-7': 'Improper Inventory Management'
+                'TC-1': 'Missing/Weak Authentication on Sensitive Endpoints'
             },
             'API3:2023': {
                 'TC-1': 'Broken Object Property Level Authorization',

@@ -28,6 +28,7 @@ urlpatterns = [
     path('api/v1/connector/', include('connector.urls')),
     path('api/v1/api-orch/', include('api_orch.urls')),
     path('api/v1/api-custom-testing/', include('api_custom_testing.urls')),
+    path('api/v1/api-2/', include('api_2.urls')),
     path('api/v1/api-4/', include('api_4.urls')),
     path('api/v1/api-7/', include('api_7.urls')),
     path('api/v1/api-8/', include('api_8.urls')),

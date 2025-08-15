@@ -60,6 +60,7 @@ INSTALLED_APPS = [
     'connector',
     'api_orch',
     'api_custom_testing',
+    'api_2',
     'api_4',
     'api_7',
     'api_8',
@@ -313,6 +314,11 @@ LOGGING = {
             'level': 'INFO',
             'propagate': True,
         },
+        'api_2': {
+            'handlers': ['file', 'console'],
+            'level': 'INFO',
+            'propagate': True,
+        },
     },
 }
 
@@ -452,4 +458,13 @@ VULNERABILITY_SCANNER_CONFIG = {
     'rate_limit_delay': 1,  # seconds between requests to same host
     'user_agent': 'VulnerabilityScanner-TC2/1.0',
     'max_redirects': 5,
+}
+
+# API-2 TC-1 Missing/Weak Authentication on Sensitive Endpoints Configurations
+API2_SETTINGS = {
+    'SCAN_TIMEOUT': 300,  # 5 minutes timeout for individual API scans
+    'MAX_CONCURRENT_SCANS': 5,
+    'REQUEST_TIMEOUT': 10,  # Timeout for individual HTTP requests
+    'MAX_RESPONSE_SIZE': 1000,  # Limit response body size to store
+    'ENABLE_REAL_HTTP_REQUESTS': True,  # Set to False to disable actual HTTP requests during testing
 }
