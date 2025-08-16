@@ -15,7 +15,8 @@ class TestCaseDefinitions:
                 'TC-7': 'Security Misconfiguration'
             },
             'API2:2023': {
-                'TC-1': 'Missing/Weak Authentication on Sensitive Endpoints'
+                'TC-1': 'Missing/Weak Authentication on Sensitive Endpoints',
+                'TC-2': 'Unrestricted Credential Stuffing'
             },
             'API3:2023': {
                 'TC-1': 'Broken Object Property Level Authorization',

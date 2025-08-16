@@ -104,3 +104,127 @@ class VulnerabilitySummaryTC1(models.Model):
 
     def __str__(self):
         return f"Scan {self.scan_id} - {self.vulnerability_type} - {self.severity}: {self.count}"
+
+class ScanResultTC2(models.Model):
+    SCAN_STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('running', 'Running'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+        ('cancelled', 'Cancelled'),
+    ]
+    
+    VULNERABILITY_SEVERITY_CHOICES = [
+        ('low', 'Low'),
+        ('medium', 'Medium'),
+        ('high', 'High'),
+        ('critical', 'Critical'),
+    ]
+    
+    scan_id = models.IntegerField()
+    api_id = models.IntegerField()  # References api_orch_postmanapi.id
+    api_name = models.CharField(max_length=255)
+    api_url = models.TextField()
+    api_method = models.CharField(max_length=10)
+    
+    # Scan metadata
+    scan_status = models.CharField(max_length=20, choices=SCAN_STATUS_CHOICES, default='pending')
+    started_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    
+    # Vulnerability findings
+    vulnerability_found = models.BooleanField(default=False)
+    vulnerability_type = models.CharField(max_length=100, default='Credential Stuffing / Brute Force')
+    severity = models.CharField(max_length=20, choices=VULNERABILITY_SEVERITY_CHOICES, null=True, blank=True)
+    
+    # Test results
+    total_attempts = models.IntegerField(default=0)
+    successful_attempts = models.IntegerField(default=0)
+    failed_attempts = models.IntegerField(default=0)
+    rate_limited_attempts = models.IntegerField(default=0)
+    
+    # Response analysis
+    avg_response_time = models.FloatField(null=True, blank=True)
+    status_codes_found = models.JSONField(default=dict)  # {200: 5, 401: 45, 429: 0}
+    rate_limiting_detected = models.BooleanField(default=False)
+    account_lockout_detected = models.BooleanField(default=False)
+    captcha_detected = models.BooleanField(default=False)
+    
+    # Detailed findings
+    exploit_successful = models.BooleanField(default=False)
+    exploit_details = models.TextField(null=True, blank=True)
+    recommendations = models.TextField(null=True, blank=True)
+    
+    # Raw data
+    test_credentials_used = models.JSONField(default=list)
+    response_samples = models.JSONField(default=list)  # Sample responses for analysis
+    error_messages = models.TextField(null=True, blank=True)
+    
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'api_2_scan_results'
+        indexes = [
+            models.Index(fields=['scan_id']),
+            models.Index(fields=['scan_status']),
+            models.Index(fields=['vulnerability_found']),
+            models.Index(fields=['created_at']),
+        ]
+    
+    def __str__(self):
+        return f"Scan {self.scan_id} - {self.api_name} ({self.scan_status})"
+
+
+class ScanSummaryTC2(models.Model):
+    scan_id = models.IntegerField(unique=True)
+    total_apis = models.IntegerField(default=0)
+    completed_apis = models.IntegerField(default=0)
+    pending_apis = models.IntegerField(default=0)
+    failed_apis = models.IntegerField(default=0)
+    
+    # Vulnerability stats
+    total_vulnerabilities = models.IntegerField(default=0)
+    critical_vulnerabilities = models.IntegerField(default=0)
+    high_vulnerabilities = models.IntegerField(default=0)
+    medium_vulnerabilities = models.IntegerField(default=0)
+    low_vulnerabilities = models.IntegerField(default=0)
+    
+    # Scan metadata
+    scan_status = models.CharField(max_length=20, default='pending')
+    started_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    total_scan_time = models.FloatField(null=True, blank=True)  # in seconds
+    
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'api_2_scan_summaries'
+        indexes = [
+            models.Index(fields=['scan_id']),
+            models.Index(fields=['scan_status']),
+            models.Index(fields=['created_at']),
+        ]
+    
+    def __str__(self):
+        return f"Scan Summary {self.scan_id} - {self.scan_status}"
+
+
+class TestCredentialTC2(models.Model):
+    """Predefined test credentials for brute force testing"""
+    username = models.CharField(max_length=255)
+    email = models.EmailField(null=True, blank=True)
+    password = models.CharField(max_length=255)
+    credential_type = models.CharField(max_length=50, default='common')  # common, weak, default
+    is_active = models.BooleanField(default=True)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = 'api_2_test_credentials'
+    
+    def __str__(self):
+        return f"{self.username}:{self.password}"

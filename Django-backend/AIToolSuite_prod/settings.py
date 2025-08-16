@@ -468,3 +468,14 @@ API2_SETTINGS = {
     'MAX_RESPONSE_SIZE': 1000,  # Limit response body size to store
     'ENABLE_REAL_HTTP_REQUESTS': True,  # Set to False to disable actual HTTP requests during testing
 }
+
+# API-2 TC-2 Unrestricted Credential Stuffing
+SCAN_SETTINGS = {
+    'MAX_CONCURRENT_SCANS': 5,
+    'MAX_ATTEMPTS_PER_API': 50,
+    'REQUEST_TIMEOUT': 30,
+    'DELAY_BETWEEN_REQUESTS': 0.1,  # seconds
+    'MAX_RESPONSE_SAMPLES': 5,
+    'ENABLE_AI_ANALYSIS': True,
+    'SCAN_THREAD_POOL_SIZE': 5,
+}

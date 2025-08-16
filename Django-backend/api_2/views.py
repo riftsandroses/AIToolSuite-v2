@@ -7,13 +7,15 @@ from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
 from django.db.models import Q, Count
 from datetime import timedelta
-from .models import ScanResultTC1, ScanSessionTC1, VulnerabilitySummaryTC1
+from .models import ScanResultTC1, ScanSessionTC1, VulnerabilitySummaryTC1, ScanResultTC2, ScanSummaryTC2, TestCredentialTC2
 from .serializers import (
     ScanInitiateSerializerTC1, ScanResultSerializerTC1, ScanSessionSerializerTC1,
     VulnerabilitySummarySerializerTC1, ScanStatsSerializerTC1, ScanHistorySerializerTC1,
-    ScanFilterSerializerTC1
+    ScanFilterSerializerTC1, ScanInitiateTC2Serializer, ScanResultTC2Serializer, ScanResultFilterTC2Serializer,
+    ScanSummaryTC2Serializer, ScanStatusTC2Serializer, ScanStatsTC2Serializer,
+    ScanHistoryTC2Serializer, VulnerabilitySummaryTC2Serializer, TestCredentialTC2Serializer
 )
-from .services import APISecurityScannerTC1, APIOrchDataServiceTC1
+from .services import APISecurityScannerTC1, APIOrchDataServiceTC1, CredentialStuffingServiceTC2, ScanAnalyticsServiceTC2
 from .tasks import run_security_scan_async
 import logging
 
@@ -429,4 +431,395 @@ class TaskStatusViewTC1(APIView):
             return Response(
                 {'error': f'Failed to get task status: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+class ScanInitiateTC2View(APIView):
+    """Initiate credential stuffing vulnerability scan"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        serializer = ScanInitiateTC2Serializer(data=request.data)
+        if serializer.is_valid():
+            scan_id = serializer.validated_data['scan_id']
+            
+            try:
+                service = CredentialStuffingServiceTC2()
+                result = service.initiate_scan(scan_id, request.user)
+                
+                if 'error' in result:
+                    return Response(result, status=status.HTTP_400_BAD_REQUEST)
+                
+                return Response(result, status=status.HTTP_200_OK)
+                
+            except Exception as e:
+                logger.error(f"Error initiating scan: {str(e)}")
+                return Response(
+                    {'error': 'Failed to initiate scan', 'detail': str(e)},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ScanResultsTC2View(APIView):
+    """Get scan results with filtering"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        # Apply filters
+        queryset = ScanResultTC2.objects.all().order_by('-created_at')
+        
+        # Filter by query parameters
+        scan_id = request.query_params.get('scan_id')
+        if scan_id:
+            queryset = queryset.filter(scan_id=scan_id)
+        
+        scan_status = request.query_params.get('scan_status')
+        if scan_status:
+            queryset = queryset.filter(scan_status=scan_status)
+        
+        vulnerability_found = request.query_params.get('vulnerability_found')
+        if vulnerability_found is not None:
+            queryset = queryset.filter(vulnerability_found=vulnerability_found.lower() == 'true')
+        
+        severity = request.query_params.get('severity')
+        if severity:
+            queryset = queryset.filter(severity=severity)
+        
+        api_method = request.query_params.get('api_method')
+        if api_method:
+            queryset = queryset.filter(api_method__icontains=api_method)
+        
+        exploit_successful = request.query_params.get('exploit_successful')
+        if exploit_successful is not None:
+            queryset = queryset.filter(exploit_successful=exploit_successful.lower() == 'true')
+        
+        date_from = request.query_params.get('date_from')
+        if date_from:
+            queryset = queryset.filter(created_at__gte=date_from)
+        
+        date_to = request.query_params.get('date_to')
+        if date_to:
+            queryset = queryset.filter(created_at__lte=date_to)
+        
+        # Pagination
+        page = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('page_size', 20))
+        start = (page - 1) * page_size
+        end = start + page_size
+        
+        total_count = queryset.count()
+        results = queryset[start:end]
+        
+        serializer = ScanResultTC2Serializer(results, many=True)
+        
+        return Response({
+            'count': total_count,
+            'page': page,
+            'page_size': page_size,
+            'total_pages': (total_count + page_size - 1) // page_size,
+            'results': serializer.data
+        })
+    
+    def post(self, request):
+        """Filter results using POST body"""
+        filter_serializer = ScanResultFilterTC2Serializer(data=request.data)
+        if not filter_serializer.is_valid():
+            return Response(filter_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        filters = filter_serializer.validated_data
+        queryset = ScanResultTC2.objects.all()
+        
+        # Apply filters
+        if 'scan_id' in filters:
+            queryset = queryset.filter(scan_id=filters['scan_id'])
+        if 'scan_status' in filters:
+            queryset = queryset.filter(scan_status=filters['scan_status'])
+        if 'vulnerability_found' in filters:
+            queryset = queryset.filter(vulnerability_found=filters['vulnerability_found'])
+        if 'severity' in filters:
+            queryset = queryset.filter(severity=filters['severity'])
+        if 'api_method' in filters:
+            queryset = queryset.filter(api_method__icontains=filters['api_method'])
+        if 'exploit_successful' in filters:
+            queryset = queryset.filter(exploit_successful=filters['exploit_successful'])
+        if 'date_from' in filters:
+            queryset = queryset.filter(created_at__gte=filters['date_from'])
+        if 'date_to' in filters:
+            queryset = queryset.filter(created_at__lte=filters['date_to'])
+        
+        queryset = queryset.order_by('-created_at')
+        serializer = ScanResultTC2Serializer(queryset, many=True)
+        
+        return Response({
+            'count': queryset.count(),
+            'results': serializer.data
+        })
+
+
+class ScanStatusTC2View(APIView):
+    """Get current status of a scan"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, scan_id):
+        try:
+            summary = ScanSummaryTC2.objects.get(scan_id=scan_id)
+            
+            # Calculate progress
+            progress_percentage = 0
+            if summary.total_apis > 0:
+                progress_percentage = (summary.completed_apis / summary.total_apis) * 100
+            
+            # Estimate remaining time
+            estimated_time = None
+            if summary.scan_status == 'running' and summary.completed_apis > 0:
+                elapsed_time = (timezone.now() - summary.started_at).total_seconds()
+                avg_time_per_api = elapsed_time / summary.completed_apis
+                remaining_apis = summary.pending_apis
+                estimated_seconds = avg_time_per_api * remaining_apis
+                estimated_time = f"{int(estimated_seconds // 60)}m {int(estimated_seconds % 60)}s"
+            
+            # Get current API being scanned
+            current_api = None
+            if summary.scan_status == 'running':
+                running_result = ScanResultTC2.objects.filter(
+                    scan_id=scan_id, 
+                    scan_status='running'
+                ).first()
+                if running_result:
+                    current_api = running_result.api_name
+            
+            elapsed_time = (timezone.now() - summary.started_at).total_seconds()
+            elapsed_str = f"{int(elapsed_time // 3600)}h {int((elapsed_time % 3600) // 60)}m {int(elapsed_time % 60)}s"
+            
+            data = {
+                'scan_id': scan_id,
+                'status': summary.scan_status,
+                'total_apis': summary.total_apis,
+                'completed_apis': summary.completed_apis,
+                'pending_apis': summary.pending_apis,
+                'failed_apis': summary.failed_apis,
+                'progress_percentage': round(progress_percentage, 2),
+                'estimated_time_remaining': estimated_time,
+                'current_api': current_api,
+                'started_at': summary.started_at,
+                'elapsed_time': elapsed_str
+            }
+            
+            serializer = ScanStatusTC2Serializer(data)
+            return Response(serializer.data)
+            
+        except ScanSummaryTC2.DoesNotExist:
+            return Response(
+                {'error': 'Scan not found'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+
+class ScanStatsTC2View(APIView):
+    """Get overall scan statistics"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        try:
+            stats = ScanAnalyticsServiceTC2.get_scan_stats()
+            serializer = ScanStatsTC2Serializer(stats)
+            return Response(serializer.data)
+        except Exception as e:
+            logger.error(f"Error fetching scan stats: {str(e)}")
+            return Response(
+                {'error': 'Failed to fetch statistics'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class ScanHistoryTC2View(APIView):
+    """Get scan history with pagination"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        # Get query parameters
+        page = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('page_size', 20))
+        scan_status = request.query_params.get('status')
+        days = int(request.query_params.get('days', 30))
+        
+        # Build queryset
+        queryset = ScanSummaryTC2.objects.all()
+        
+        if scan_status:
+            queryset = queryset.filter(scan_status=scan_status)
+        
+        # Filter by date range
+        date_from = timezone.now() - timedelta(days=days)
+        queryset = queryset.filter(created_at__gte=date_from)
+        
+        queryset = queryset.order_by('-started_at')
+        
+        # Pagination
+        start = (page - 1) * page_size
+        end = start + page_size
+        total_count = queryset.count()
+        summaries = queryset[start:end]
+        
+        # Prepare data
+        history_data = []
+        for summary in summaries:
+            duration = None
+            if summary.completed_at and summary.started_at:
+                duration_seconds = (summary.completed_at - summary.started_at).total_seconds()
+                duration = f"{int(duration_seconds // 60)}m {int(duration_seconds % 60)}s"
+            
+            history_data.append({
+                'scan_id': summary.scan_id,
+                'scan_status': summary.scan_status,
+                'total_apis': summary.total_apis,
+                'vulnerabilities_found': summary.total_vulnerabilities,
+                'started_at': summary.started_at,
+                'completed_at': summary.completed_at,
+                'duration': duration,
+                'created_by': summary.created_by.username if summary.created_by else None
+            })
+        
+        serializer = ScanHistoryTC2Serializer(history_data, many=True)
+        
+        return Response({
+            'count': total_count,
+            'page': page,
+            'page_size': page_size,
+            'total_pages': (total_count + page_size - 1) // page_size,
+            'results': serializer.data
+        })
+
+
+class VulnerabilitySummaryTC2View(APIView):
+    """Get vulnerability summary for a scan"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, scan_id):
+        try:
+            summary = ScanAnalyticsServiceTC2.get_vulnerability_summary(scan_id)
+            serializer = VulnerabilitySummaryTC2Serializer(summary)
+            return Response(serializer.data)
+        except Exception as e:
+            logger.error(f"Error fetching vulnerability summary for scan {scan_id}: {str(e)}")
+            return Response(
+                {'error': 'Failed to fetch vulnerability summary'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class ScanSummaryTC2View(APIView):
+    """Get scan summary"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, scan_id=None):
+        if scan_id:
+            try:
+                summary = ScanSummaryTC2.objects.get(scan_id=scan_id)
+                serializer = ScanSummaryTC2Serializer(summary)
+                return Response(serializer.data)
+            except ScanSummaryTC2.DoesNotExist:
+                return Response(
+                    {'error': 'Scan summary not found'}, 
+                    status=status.HTTP_404_NOT_FOUND
+                )
+        else:
+            # List all summaries
+            summaries = ScanSummaryTC2.objects.all().order_by('-started_at')
+            page = int(request.query_params.get('page', 1))
+            page_size = int(request.query_params.get('page_size', 20))
+            
+            start = (page - 1) * page_size
+            end = start + page_size
+            total_count = summaries.count()
+            
+            serializer = ScanSummaryTC2Serializer(summaries[start:end], many=True)
+            
+            return Response({
+                'count': total_count,
+                'page': page,
+                'page_size': page_size,
+                'total_pages': (total_count + page_size - 1) // page_size,
+                'results': serializer.data
+            })
+
+
+class TestCredentialsTC2View(APIView):
+    """Manage test credentials"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        credentials = TestCredentialTC2.objects.filter(is_active=True)
+        serializer = TestCredentialTC2Serializer(credentials, many=True)
+        return Response(serializer.data)
+    
+    def post(self, request):
+        serializer = TestCredentialTC2Serializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ScanCancelTC2View(APIView):
+    """Cancel a running scan"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request, scan_id):
+        try:
+            summary = ScanSummaryTC2.objects.get(scan_id=scan_id)
+            
+            if summary.scan_status not in ['running', 'pending']:
+                return Response(
+                    {'error': 'Scan is not running or pending'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Mark as cancelled
+            summary.scan_status = 'cancelled'
+            summary.completed_at = timezone.now()
+            summary.save()
+            
+            # Mark pending results as cancelled
+            ScanResultTC2.objects.filter(
+                scan_id=scan_id,
+                scan_status__in=['pending', 'running']
+            ).update(
+                scan_status='cancelled',
+                completed_at=timezone.now()
+            )
+            
+            return Response({'message': 'Scan cancelled successfully'})
+            
+        except ScanSummaryTC2.DoesNotExist:
+            return Response(
+                {'error': 'Scan not found'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+
+class ScanResultDetailTC2View(APIView):
+    """Get detailed scan result"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, result_id):
+        try:
+            result = ScanResultTC2.objects.get(id=result_id)
+            serializer = ScanResultTC2Serializer(result)
+            return Response(serializer.data)
+        except ScanResultTC2.DoesNotExist:
+            return Response(
+                {'error': 'Scan result not found'}, 
+                status=status.HTTP_404_NOT_FOUND
             )
