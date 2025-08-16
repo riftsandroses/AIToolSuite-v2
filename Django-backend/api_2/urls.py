@@ -20,6 +20,18 @@ from .views import (
     TestCredentialsTC2View,
     ScanCancelTC2View,
     ScanResultDetailTC2View,
+    ScanInitiateViewTC3,
+    ScanStatusViewTC3,
+    ScanResultsViewTC3,
+    VulnerabilitySummaryViewTC3,
+    ScanStatsViewTC3,
+    ScanHistoryViewTC3,
+    VulnerabilityTemplatesViewTC3,
+    ScanResultDetailViewTC3,
+    ScanCancelViewTC3,
+    VulnerabilityTypesViewTC3,
+    BulkScanResultsViewTC3,
+    ScanExportViewTC3
 )
 
 app_name = 'api_2'
@@ -50,4 +62,18 @@ urlpatterns = [
     path('stats-tc2/', ScanStatsTC2View.as_view(), name='scan-stats-tc2'),
     path('history-tc2/', ScanHistoryTC2View.as_view(), name='scan-history-tc2'),
     path('credentials-tc2/', TestCredentialsTC2View.as_view(), name='test-credentials-tc2'),
+
+    # TC-3 Weak Password Policy
+    path('scan-tc3/initiate/', ScanInitiateViewTC3.as_view(), name='scan-initiate'),
+    path('scan-tc3/<int:scan_id>/status/', ScanStatusViewTC3.as_view(), name='scan-status'),
+    path('scan-tc3/<int:scan_id>/cancel/', ScanCancelViewTC3.as_view(), name='scan-cancel'),
+    path('scan-tc3/<int:scan_id>/export/', ScanExportViewTC3.as_view(), name='scan-export'),
+    path('results-tc3/', ScanResultsViewTC3.as_view(), name='scan-results'),
+    path('results-tc3/<int:result_id>/', ScanResultDetailViewTC3.as_view(), name='scan-result-detail'),
+    path('results-tc3/bulk/', BulkScanResultsViewTC3.as_view(), name='bulk-scan-results'),
+    path('scan-tc3/<int:scan_id>/summary/', VulnerabilitySummaryViewTC3.as_view(), name='vulnerability-summary'),
+    path('stats-tc3/', ScanStatsViewTC3.as_view(), name='scan-stats'),
+    path('history-tc3/', ScanHistoryViewTC3.as_view(), name='scan-history'),
+    path('templates-tc3/', VulnerabilityTemplatesViewTC3.as_view(), name='vulnerability-templates'),
+    path('vulnerability-types-tc3/', VulnerabilityTypesViewTC3.as_view(), name='vulnerability-types'),
 ]

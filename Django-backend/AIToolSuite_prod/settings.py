@@ -479,3 +479,28 @@ SCAN_SETTINGS = {
     'ENABLE_AI_ANALYSIS': True,
     'SCAN_THREAD_POOL_SIZE': 5,
 }
+
+# API-2 TC-3 Weak Password Policy
+VULNERABILITY_SCAN_TIMEOUT = 300  # 5 minutes
+MAX_CONCURRENT_SCANS = 5
+SCAN_RESULT_RETENTION_DAYS = 90
+SECURITY_TEST_RATE_LIMIT = {
+    'requests_per_minute': 10,
+    'burst_size': 20
+}
+CLI_TOOLS = {
+    'nmap': {
+        'enabled': True,
+        'timeout': 300,
+        'default_args': ['-sV', '--script=vuln']
+    },
+    'sqlmap': {
+        'enabled': True,
+        'timeout': 600,
+        'default_args': ['--batch', '--level=3', '--risk=2']
+    },
+    'nikto': {
+        'enabled': True,
+        'timeout': 900
+    }
+}

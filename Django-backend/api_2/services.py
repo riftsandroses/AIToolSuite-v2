@@ -22,6 +22,9 @@ from .models import (
     ScanResultTC2,
     ScanSummaryTC2,
     TestCredentialTC2,
+    ScanResultTC3, 
+    ScanSessionTC3, 
+    VulnerabilityTemplateTC3
 )
 
 logger = logging.getLogger(__name__)
@@ -978,4 +981,381 @@ class ScanAnalyticsServiceTC2:
             'severity_distribution': severity_dist,
             'recommendations': recommendations,
             'risk_score': risk_score
+        }
+
+
+class VulnerabilityScannerServiceTC3:
+    def __init__(self):
+        self.openai_client = openai.OpenAI(api_key=getattr(settings, 'OPENAI_API_KEY', ''))
+        self.weak_passwords = [
+            '123456', 'password', 'qwerty', 'abc123', '12345678',
+            'welcome', 'admin', 'letmein', '123123', 'Password1',
+            'password123', '1234567890', 'changeme', 'test', 'guest'
+        ]
+    
+    def get_api_data(self, scan_id):
+        """Fetch API data from api_orch_postmanapi table"""
+        from django.db import connection
+        
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                SELECT "id", "name", "method", "url", "headers", "body", "authorization", 
+                       "query_params", "pre_request_script", "test_script"
+                FROM api_orch_postmanapi 
+                WHERE "scan_id" = %s
+            """, [scan_id])
+            
+            columns = [col[0] for col in cursor.description]
+            return [dict(zip(columns, row)) for row in cursor.fetchall()]
+    
+    def get_jwt_token(self, scan_id):
+        """Get JWT token from api_orch_scantokens table"""
+        from django.db import connection
+        
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                SELECT "access_token"
+                FROM api_orch_scantokens 
+                WHERE "scan_id" = %s
+                ORDER BY created_at DESC
+                LIMIT 1
+            """, [scan_id])
+            
+            result = cursor.fetchone()
+            return result[0] if result else None
+    
+    def analyze_password_policy_with_ai(self, api_data, response_data):
+        """Use OpenAI to analyze password policy vulnerability"""
+        try:
+            prompt = f"""
+            Analyze this API for weak password policy vulnerabilities:
+            
+            API Details:
+            - Name: {api_data.get('name')}
+            - Method: {api_data.get('method')}
+            - URL: {api_data.get('url')}
+            - Body: {api_data.get('body')}
+            
+            Test Response:
+            - Status Code: {response_data.get('status_code')}
+            - Response Body: {response_data.get('response_body', '')}
+            - Response Headers: {response_data.get('headers', {})}
+            
+            Weak passwords tested: {', '.join(self.weak_passwords[:5])}
+            
+            Please analyze and provide:
+            1. Is this API vulnerable to weak password attacks? (yes/no)
+            2. Severity level (critical/high/medium/low)
+            3. Evidence of vulnerability
+            4. Specific recommendations
+            
+            Respond in JSON format:
+            {{
+                "vulnerable": boolean,
+                "severity": "string",
+                "evidence": "string",
+                "recommendation": "string",
+                "confidence": "float (0.0-1.0)"
+            }}
+            """
+            
+            response = self.openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1
+            )
+            
+            return json.loads(response.choices[0].message.content)
+            
+        except Exception as e:
+            logger.error(f"AI analysis failed: {str(e)}")
+            return {
+                "vulnerable": False,
+                "severity": "low",
+                "evidence": f"Analysis failed: {str(e)}",
+                "recommendation": "Manual review required",
+                "confidence": 0.0
+            }
+    
+    def test_weak_password_policy(self, api_data, jwt_token=None):
+        """Test API for weak password policy vulnerability"""
+        results = []
+        
+        try:
+            headers = json.loads(api_data.get('headers', '{}'))
+            body_data = json.loads(api_data.get('body', '{}'))
+            
+            if jwt_token:
+                headers['Authorization'] = f'Bearer {jwt_token}'
+            
+            # Test with weak passwords
+            for weak_password in self.weak_passwords:
+                test_payload = body_data.copy()
+                
+                # Try to identify password fields
+                password_fields = ['password', 'pwd', 'pass', 'passwd', 'secret']
+                for field in password_fields:
+                    if field in str(body_data).lower():
+                        # Extract and modify the body
+                        if 'raw' in body_data:
+                            try:
+                                raw_data = json.loads(body_data['raw'])
+                                for key in raw_data:
+                                    if any(pf in key.lower() for pf in password_fields):
+                                        raw_data[key] = weak_password
+                                        break
+                                test_payload['raw'] = json.dumps(raw_data)
+                            except:
+                                pass
+                        break
+                
+                # Make the request
+                try:
+                    response = requests.request(
+                        method=api_data.get('method', 'GET'),
+                        url=api_data.get('url'),
+                        headers=headers,
+                        json=json.loads(test_payload.get('raw', '{}')) if 'raw' in test_payload else None,
+                        timeout=30
+                    )
+                    
+                    response_data = {
+                        'status_code': response.status_code,
+                        'response_body': response.text[:1000],  # Limit response size
+                        'headers': dict(response.headers),
+                        'test_password': weak_password
+                    }
+                    
+                    # Check if weak password was accepted
+                    success_indicators = [200, 201, 302]
+                    error_indicators = ['invalid', 'wrong', 'incorrect', 'failed', 'error']
+                    
+                    exploit_successful = (
+                        response.status_code in success_indicators and
+                        not any(indicator in response.text.lower() for indicator in error_indicators)
+                    )
+                    
+                    if exploit_successful:
+                        # Use AI to analyze the vulnerability
+                        ai_analysis = self.analyze_password_policy_with_ai(api_data, response_data)
+                        
+                        results.append({
+                            'vulnerable': ai_analysis.get('vulnerable', True),
+                            'severity': ai_analysis.get('severity', 'medium'),
+                            'test_payload': test_payload,
+                            'response_data': response_data,
+                            'exploit_successful': exploit_successful,
+                            'evidence': {
+                                'weak_password_accepted': weak_password,
+                                'response_analysis': ai_analysis.get('evidence', ''),
+                                'status_code': response.status_code
+                            },
+                            'ai_confidence': ai_analysis.get('confidence', 0.5)
+                        })
+                        
+                        # If we found a vulnerability, no need to test all passwords
+                        break
+                    
+                except requests.RequestException as e:
+                    logger.error(f"Request failed for API {api_data.get('name')}: {str(e)}")
+                    continue
+            
+            # If no vulnerabilities found, return a negative result
+            if not results:
+                results.append({
+                    'vulnerable': False,
+                    'severity': 'info',
+                    'test_payload': {},
+                    'response_data': {'message': 'No weak password vulnerabilities detected'},
+                    'exploit_successful': False,
+                    'evidence': {'message': 'API appears to have proper password validation'},
+                    'ai_confidence': 0.8
+                })
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"Vulnerability test failed: {str(e)}")
+            return [{
+                'vulnerable': False,
+                'severity': 'info',
+                'test_payload': {},
+                'response_data': {'error': str(e)},
+                'exploit_successful': False,
+                'evidence': {'error': f'Test failed: {str(e)}'},
+                'ai_confidence': 0.0
+            }]
+    
+    @transaction.atomic
+    def initiate_scan(self, scan_id, vulnerability_types=['weak_password_policy'], config=None):
+        """Start vulnerability scan for given scan_id"""
+        try:
+            # Create or update scan session
+            scan_session, created = ScanSessionTC3.objects.get_or_create(
+                scan_id=scan_id,
+                defaults={
+                    'status': 'running',
+                    'scan_config': config or {}
+                }
+            )
+            
+            if not created:
+                scan_session.status = 'running'
+                scan_session.started_at = timezone.now()
+                scan_session.save()
+            
+            # Get API data and JWT token
+            api_list = self.get_api_data(scan_id)
+            jwt_token = self.get_jwt_token(scan_id)
+            
+            scan_session.total_apis = len(api_list)
+            scan_session.save()
+            
+            # Process each API
+            vulnerabilities_found = 0
+            
+            for api_data in api_list:
+                try:
+                    if 'weak_password_policy' in vulnerability_types:
+                        results = self.test_weak_password_policy(api_data, jwt_token)
+                        
+                        for result in results:
+                            if result.get('vulnerable', False):
+                                # Save vulnerability to database
+                                vulnerability = ScanResultTC3.objects.create(
+                                    scan_id=scan_id,
+                                    api_id=api_data['id'],
+                                    vulnerability_type='weak_password_policy',
+                                    severity=result.get('severity', 'medium'),
+                                    api_name=api_data.get('name', ''),
+                                    api_method=api_data.get('method', ''),
+                                    api_url=api_data.get('url', ''),
+                                    title='Weak or Default Password Policy',
+                                    description='API accepts weak passwords that can be easily guessed or brute-forced.',
+                                    impact='Attackers can gain unauthorized access using common passwords.',
+                                    recommendation='Implement strong password policy with minimum length, complexity requirements, and rate limiting.',
+                                    test_payload=result.get('test_payload', {}),
+                                    test_response=result.get('response_data', {}),
+                                    exploit_successful=result.get('exploit_successful', False),
+                                    evidence=result.get('evidence', {})
+                                )
+                                
+                                vulnerabilities_found += 1
+                                
+                                # Update severity counts
+                                severity = result.get('severity', 'medium')
+                                if severity == 'critical':
+                                    scan_session.critical_count += 1
+                                elif severity == 'high':
+                                    scan_session.high_count += 1
+                                elif severity == 'medium':
+                                    scan_session.medium_count += 1
+                                elif severity == 'low':
+                                    scan_session.low_count += 1
+                                else:
+                                    scan_session.info_count += 1
+                
+                except Exception as e:
+                    logger.error(f"Error processing API {api_data.get('name')}: {str(e)}")
+                    scan_session.errors.append({
+                        'api_id': api_data['id'],
+                        'error': str(e),
+                        'timestamp': timezone.now().isoformat()
+                    })
+                
+                # Update progress
+                scan_session.apis_scanned += 1
+                scan_session.vulnerabilities_found = vulnerabilities_found
+                scan_session.save()
+            
+            # Complete scan
+            scan_session.status = 'completed'
+            scan_session.completed_at = timezone.now()
+            scan_session.save()
+            
+            return scan_session
+            
+        except Exception as e:
+            logger.error(f"Scan initiation failed: {str(e)}")
+            if 'scan_session' in locals():
+                scan_session.status = 'failed'
+                scan_session.errors.append({
+                    'error': f'Scan failed: {str(e)}',
+                    'timestamp': timezone.now().isoformat()
+                })
+                scan_session.save()
+            raise
+
+
+class ScanStatsServiceTC3:
+    @staticmethod
+    def get_scan_statistics():
+        """Get comprehensive scan statistics"""
+        from django.db.models import Count, Q
+        
+        # Scan session stats
+        total_scans = ScanSessionTC3.objects.count()
+        completed_scans = ScanSessionTC3.objects.filter(status='completed').count()
+        running_scans = ScanSessionTC3.objects.filter(status='running').count()
+        failed_scans = ScanSessionTC3.objects.filter(status='failed').count()
+        
+        # Vulnerability stats
+        vulnerability_stats = ScanResultTC3.objects.aggregate(
+            total=Count('id'),
+            critical=Count('id', filter=Q(severity='critical')),
+            high=Count('id', filter=Q(severity='high')),
+            medium=Count('id', filter=Q(severity='medium')),
+            low=Count('id', filter=Q(severity='low'))
+        )
+        
+        # Recent scans
+        recent_scans = ScanSessionTC3.objects.order_by('-started_at')[:10]
+        
+        return {
+            'total_scans': total_scans,
+            'completed_scans': completed_scans,
+            'running_scans': running_scans,
+            'failed_scans': failed_scans,
+            'total_vulnerabilities': vulnerability_stats['total'],
+            'critical_vulnerabilities': vulnerability_stats['critical'],
+            'high_vulnerabilities': vulnerability_stats['high'],
+            'medium_vulnerabilities': vulnerability_stats['medium'],
+            'low_vulnerabilities': vulnerability_stats['low'],
+            'recent_scans': recent_scans
+        }
+    
+    @staticmethod
+    def get_vulnerability_summary(scan_id):
+        """Get vulnerability summary for specific scan"""
+        from django.db.models import Count
+        
+        try:
+            scan_session = ScanSessionTC3.objects.get(scan_id=scan_id)
+        except ScanSessionTC3.DoesNotExist:
+            return None
+        
+        # Get vulnerability counts by type
+        by_type = ScanResultTC3.objects.filter(scan_id=scan_id).values('vulnerability_type').annotate(
+            count=Count('id')
+        )
+        
+        # Get vulnerabilities by API
+        by_api = ScanResultTC3.objects.filter(scan_id=scan_id).values(
+            'api_name', 'api_method', 'api_url'
+        ).annotate(
+            vulnerability_count=Count('id')
+        ).order_by('-vulnerability_count')
+        
+        return {
+            'scan_id': scan_id,
+            'total_vulnerabilities': scan_session.vulnerabilities_found,
+            'critical_count': scan_session.critical_count,
+            'high_count': scan_session.high_count,
+            'medium_count': scan_session.medium_count,
+            'low_count': scan_session.low_count,
+            'info_count': scan_session.info_count,
+            'by_type': {item['vulnerability_type']: item['count'] for item in by_type},
+            'by_api': list(by_api),
+            'scan_status': scan_session.status,
+            'scan_progress': scan_session.progress_percentage
         }

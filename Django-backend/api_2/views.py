@@ -6,17 +6,22 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
 from django.db.models import Q, Count
+from django.core.paginator import Paginator
 from datetime import timedelta
-from .models import ScanResultTC1, ScanSessionTC1, VulnerabilitySummaryTC1, ScanResultTC2, ScanSummaryTC2, TestCredentialTC2
+from .models import ScanResultTC1, ScanSessionTC1, VulnerabilitySummaryTC1, ScanResultTC2, ScanSummaryTC2, TestCredentialTC2, ScanResultTC3, ScanSessionTC3, VulnerabilityTemplateTC3
 from .serializers import (
     ScanInitiateSerializerTC1, ScanResultSerializerTC1, ScanSessionSerializerTC1,
     VulnerabilitySummarySerializerTC1, ScanStatsSerializerTC1, ScanHistorySerializerTC1,
     ScanFilterSerializerTC1, ScanInitiateTC2Serializer, ScanResultTC2Serializer, ScanResultFilterTC2Serializer,
     ScanSummaryTC2Serializer, ScanStatusTC2Serializer, ScanStatsTC2Serializer,
-    ScanHistoryTC2Serializer, VulnerabilitySummaryTC2Serializer, TestCredentialTC2Serializer
+    ScanHistoryTC2Serializer, VulnerabilitySummaryTC2Serializer, TestCredentialTC2Serializer,
+    ScanInitiateSerializerTC3, ScanResultSerializerTC3, ScanResultListSerializerTC3,
+    ScanResultFilterSerializerTC3, ScanSessionSerializerTC3, ScanStatsSerializerTC3,
+    VulnerabilitySummarySerializerTC3, ScanHistorySerializerTC3, VulnerabilityTemplateSerializerTC3
 )
-from .services import APISecurityScannerTC1, APIOrchDataServiceTC1, CredentialStuffingServiceTC2, ScanAnalyticsServiceTC2
+from .services import APISecurityScannerTC1, APIOrchDataServiceTC1, CredentialStuffingServiceTC2, ScanAnalyticsServiceTC2, VulnerabilityScannerServiceTC3, ScanStatsServiceTC3
 from .tasks import run_security_scan_async
+import threading
 import logging
 
 logger = logging.getLogger(__name__)
@@ -823,3 +828,413 @@ class ScanResultDetailTC2View(APIView):
                 {'error': 'Scan result not found'}, 
                 status=status.HTTP_404_NOT_FOUND
             )
+
+
+class ScanInitiateViewTC3(APIView):
+    """Initiate vulnerability scan for given scan_id"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        serializer = ScanInitiateSerializerTC3(data=request.data)
+        if serializer.is_valid():
+            scan_id = serializer.validated_data['scan_id']
+            vulnerability_types = serializer.validated_data.get('vulnerability_types', ['weak_password_policy'])
+            config = serializer.validated_data.get('config', {})
+            
+            # Check if scan is already running
+            existing_scan = ScanSessionTC3.objects.filter(
+                scan_id=scan_id, 
+                status__in=['running', 'pending']
+            ).first()
+            
+            if existing_scan:
+                return Response({
+                    'error': 'Scan is already running for this scan_id',
+                    'scan_session': ScanSessionSerializerTC3(existing_scan).data
+                }, status=status.HTTP_409_CONFLICT)
+            
+            # Start scan in background thread
+            scanner = VulnerabilityScannerServiceTC3()
+            
+            def run_scan():
+                try:
+                    scanner.initiate_scan(scan_id, vulnerability_types, config)
+                except Exception as e:
+                    print(f"Background scan failed: {str(e)}")
+            
+            thread = threading.Thread(target=run_scan)
+            thread.daemon = True
+            thread.start()
+            
+            # Return immediate response
+            scan_session = ScanSessionTC3.objects.create(
+                scan_id=scan_id,
+                status='pending',
+                scan_config={'vulnerability_types': vulnerability_types, **config}
+            )
+            
+            return Response({
+                'message': 'Scan initiated successfully',
+                'scan_session': ScanSessionSerializerTC3(scan_session).data
+            }, status=status.HTTP_201_CREATED)
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ScanStatusViewTC3(APIView):
+    """Get scan status and progress"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, scan_id):
+        try:
+            scan_session = ScanSessionTC3.objects.get(scan_id=scan_id)
+            return Response(ScanSessionSerializerTC3(scan_session).data)
+        except ScanSessionTC3.DoesNotExist:
+            return Response({
+                'error': 'Scan session not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+
+
+class ScanResultsViewTC3(APIView):
+    """Get scan results with filtering"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        # Apply filters
+        queryset = ScanResultTC3.objects.all()
+        
+        # Filter parameters
+        scan_id = request.GET.get('scan_id')
+        vulnerability_type = request.GET.get('vulnerability_type')
+        severity = request.GET.get('severity')
+        status_filter = request.GET.get('status')
+        api_method = request.GET.get('api_method')
+        exploit_successful = request.GET.get('exploit_successful')
+        date_from = request.GET.get('date_from')
+        date_to = request.GET.get('date_to')
+        
+        if scan_id:
+            queryset = queryset.filter(scan_id=scan_id)
+        if vulnerability_type:
+            queryset = queryset.filter(vulnerability_type=vulnerability_type)
+        if severity:
+            queryset = queryset.filter(severity=severity)
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        if api_method:
+            queryset = queryset.filter(api_method__icontains=api_method)
+        if exploit_successful is not None:
+            queryset = queryset.filter(exploit_successful=exploit_successful.lower() == 'true')
+        if date_from:
+            queryset = queryset.filter(created_at__gte=date_from)
+        if date_to:
+            queryset = queryset.filter(created_at__lte=date_to)
+        
+        # Ordering
+        queryset = queryset.order_by('-created_at')
+        
+        # Pagination
+        page = int(request.GET.get('page', 1))
+        page_size = int(request.GET.get('page_size', 20))
+        
+        paginator = Paginator(queryset, page_size)
+        page_obj = paginator.get_page(page)
+        
+        # Detailed view or list view
+        detailed = request.GET.get('detailed', 'false').lower() == 'true'
+        
+        if detailed:
+            serializer = ScanResultSerializerTC3(page_obj.object_list, many=True)
+        else:
+            serializer = ScanResultListSerializerTC3(page_obj.object_list, many=True)
+        
+        return Response({
+            'results': serializer.data,
+            'pagination': {
+                'current_page': page,
+                'total_pages': paginator.num_pages,
+                'total_count': paginator.count,
+                'page_size': page_size,
+                'has_next': page_obj.has_next(),
+                'has_previous': page_obj.has_previous()
+            }
+        })
+    
+    def patch(self, request):
+        """Update scan result status"""
+        result_id = request.data.get('id')
+        new_status = request.data.get('status')
+        
+        if not result_id or not new_status:
+            return Response({
+                'error': 'ID and status are required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            scan_result = ScanResultTC3.objects.get(id=result_id)
+            scan_result.status = new_status
+            scan_result.save()
+            
+            return Response(ScanResultSerializerTC3(scan_result).data)
+        except ScanResultTC3.DoesNotExist:
+            return Response({
+                'error': 'Scan result not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+
+
+class VulnerabilitySummaryViewTC3(APIView):
+    """Get vulnerability summary for a scan"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, scan_id):
+        stats_service = ScanStatsServiceTC3()
+        summary = stats_service.get_vulnerability_summary(scan_id)
+        
+        if summary is None:
+            return Response({
+                'error': 'Scan not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        serializer = VulnerabilitySummarySerializerTC3(summary)
+        return Response(serializer.data)
+
+
+class ScanStatsViewTC3(APIView):
+    """Get comprehensive scan statistics"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        stats_service = ScanStatsServiceTC3()
+        stats = stats_service.get_scan_statistics()
+        
+        serializer = ScanStatsSerializerTC3(stats)
+        return Response(serializer.data)
+
+
+class ScanHistoryViewTC3(APIView):
+    """Get scan history with pagination"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        queryset = ScanSessionTC3.objects.all().order_by('-started_at')
+        
+        # Filters
+        status_filter = request.GET.get('status')
+        scan_id = request.GET.get('scan_id')
+        
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        if scan_id:
+            queryset = queryset.filter(scan_id=scan_id)
+        
+        # Pagination
+        page = int(request.GET.get('page', 1))
+        page_size = int(request.GET.get('page_size', 20))
+        
+        paginator = Paginator(queryset, page_size)
+        page_obj = paginator.get_page(page)
+        
+        serializer = ScanSessionSerializerTC3(page_obj.object_list, many=True)
+        
+        response_data = {
+            'scan_sessions': serializer.data,
+            'total_count': paginator.count,
+            'page': page,
+            'page_size': page_size,
+            'total_pages': paginator.num_pages
+        }
+        
+        return Response(ScanHistorySerializerTC3(response_data).data)
+
+
+class VulnerabilityTemplatesViewTC3(APIView):
+    """Manage vulnerability templates"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        templates = VulnerabilityTemplateTC3.objects.all()
+        serializer = VulnerabilityTemplateSerializerTC3(templates, many=True)
+        return Response(serializer.data)
+    
+    def post(self, request):
+        serializer = VulnerabilityTemplateSerializerTC3(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ScanResultDetailViewTC3(APIView):
+    """Get detailed scan result"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, result_id):
+        try:
+            scan_result = ScanResultTC3.objects.get(id=result_id)
+            serializer = ScanResultSerializerTC3(scan_result)
+            return Response(serializer.data)
+        except ScanResultTC3.DoesNotExist:
+            return Response({
+                'error': 'Scan result not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+    
+    def patch(self, request, result_id):
+        try:
+            scan_result = ScanResultTC3.objects.get(id=result_id)
+            serializer = ScanResultSerializerTC3(scan_result, data=request.data, partial=True)
+            if serializer.is_valid():
+                serializer.save()
+                return Response(serializer.data)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        except ScanResultTC3.DoesNotExist:
+            return Response({
+                'error': 'Scan result not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+    
+    def delete(self, request, result_id):
+        try:
+            scan_result = ScanResultTC3.objects.get(id=result_id)
+            scan_result.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        except ScanResultTC3.DoesNotExist:
+            return Response({
+                'error': 'Scan result not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+
+
+class ScanCancelViewTC3(APIView):
+    """Cancel running scan"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request, scan_id):
+        try:
+            scan_session = ScanSessionTC3.objects.get(scan_id=scan_id)
+            
+            if scan_session.status not in ['running', 'pending']:
+                return Response({
+                    'error': f'Cannot cancel scan with status: {scan_session.status}'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            scan_session.status = 'cancelled'
+            scan_session.completed_at = timezone.now()
+            scan_session.save()
+            
+            return Response({
+                'message': 'Scan cancelled successfully',
+                'scan_session': ScanSessionSerializerTC3(scan_session).data
+            })
+        except ScanSessionTC3.DoesNotExist:
+            return Response({
+                'error': 'Scan session not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+
+
+class VulnerabilityTypesViewTC3(APIView):
+    """Get available vulnerability types"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        return Response({
+            'vulnerability_types': [
+                {
+                    'key': choice[0],
+                    'label': choice[1]
+                }
+                for choice in ScanResultTC3.VULNERABILITY_CHOICES
+            ],
+            'severity_levels': [
+                {
+                    'key': choice[0],
+                    'label': choice[1]
+                }
+                for choice in ScanResultTC3.SEVERITY_CHOICES
+            ],
+            'status_options': [
+                {
+                    'key': choice[0],
+                    'label': choice[1]
+                }
+                for choice in ScanResultTC3.STATUS_CHOICES
+            ]
+        })
+
+
+class BulkScanResultsViewTC3(APIView):
+    """Bulk operations on scan results"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def patch(self, request):
+        """Bulk update scan results"""
+        result_ids = request.data.get('ids', [])
+        update_data = request.data.get('update_data', {})
+        
+        if not result_ids or not update_data:
+            return Response({
+                'error': 'IDs and update_data are required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        updated_count = ScanResultTC3.objects.filter(
+            id__in=result_ids
+        ).update(**update_data)
+        
+        return Response({
+            'message': f'Updated {updated_count} scan results',
+            'updated_count': updated_count
+        })
+    
+    def delete(self, request):
+        """Bulk delete scan results"""
+        result_ids = request.data.get('ids', [])
+        
+        if not result_ids:
+            return Response({
+                'error': 'IDs are required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        deleted_count, _ = ScanResultTC3.objects.filter(
+            id__in=result_ids
+        ).delete()
+        
+        return Response({
+            'message': f'Deleted {deleted_count} scan results',
+            'deleted_count': deleted_count
+        })
+
+
+class ScanExportViewTC3(APIView):
+    """Export scan results"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, scan_id):
+        """Export scan results as JSON"""
+        try:
+            scan_session = ScanSessionTC3.objects.get(scan_id=scan_id)
+            scan_results = ScanResultTC3.objects.filter(scan_id=scan_id)
+            
+            export_data = {
+                'scan_session': ScanSessionSerializerTC3(scan_session).data,
+                'results': ScanResultSerializerTC3(scan_results, many=True).data,
+                'export_timestamp': timezone.now().isoformat(),
+                'total_vulnerabilities': scan_results.count()
+            }
+            
+            response = Response(export_data)
+            response['Content-Disposition'] = f'attachment; filename="scan_{scan_id}_export.json"'
+            return response
+            
+        except ScanSessionTC3.DoesNotExist:
+            return Response({
+                'error': 'Scan session not found'
+            }, status=status.HTTP_404_NOT_FOUND)

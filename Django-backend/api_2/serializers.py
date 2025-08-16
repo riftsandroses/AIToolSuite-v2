@@ -1,6 +1,7 @@
 from rest_framework import serializers
-from .models import ScanResultTC1, ScanSessionTC1, VulnerabilitySummaryTC1, ScanResultTC2, ScanSummaryTC2, TestCredentialTC2
+from .models import ScanResultTC1, ScanSessionTC1, VulnerabilitySummaryTC1, ScanResultTC2, ScanSummaryTC2, TestCredentialTC2, ScanResultTC3, ScanSessionTC3, VulnerabilityTemplateTC3
 from django.utils import timezone
+
 
 class ScanInitiateSerializerTC1(serializers.Serializer):
     scan_id = serializers.IntegerField(min_value=1)
@@ -227,3 +228,100 @@ class VulnerabilitySummaryTC2Serializer(serializers.Serializer):
     severity_distribution = serializers.DictField()
     recommendations = serializers.ListField()
     risk_score = serializers.FloatField()
+
+
+class ScanInitiateSerializerTC3(serializers.Serializer):
+    scan_id = serializers.IntegerField()
+    vulnerability_types = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        default=['weak_password_policy']
+    )
+    config = serializers.JSONField(required=False, default=dict)
+
+
+class ScanResultSerializerTC3(serializers.ModelSerializer):
+    class Meta:
+        model = ScanResultTC3
+        fields = [
+            'id', 'scan_id', 'api_id', 'vulnerability_type', 'severity', 'status',
+            'api_name', 'api_method', 'api_url', 'title', 'description', 'impact',
+            'recommendation', 'test_payload', 'test_response', 'exploit_successful',
+            'evidence', 'screenshots', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class ScanResultListSerializerTC3(serializers.ModelSerializer):
+    class Meta:
+        model = ScanResultTC3
+        fields = [
+            'id', 'scan_id', 'api_id', 'vulnerability_type', 'severity', 'status',
+            'api_name', 'api_method', 'api_url', 'title', 'exploit_successful',
+            'created_at'
+        ]
+
+
+class ScanResultFilterSerializerTC3(serializers.Serializer):
+    scan_id = serializers.IntegerField(required=False)
+    vulnerability_type = serializers.CharField(required=False)
+    severity = serializers.CharField(required=False)
+    status = serializers.CharField(required=False)
+    api_method = serializers.CharField(required=False)
+    exploit_successful = serializers.BooleanField(required=False)
+    date_from = serializers.DateTimeField(required=False)
+    date_to = serializers.DateTimeField(required=False)
+
+
+class ScanSessionSerializerTC3(serializers.ModelSerializer):
+    progress_percentage = serializers.ReadOnlyField()
+    
+    class Meta:
+        model = ScanSessionTC3
+        fields = [
+            'id', 'scan_id', 'status', 'started_at', 'completed_at',
+            'total_apis', 'apis_scanned', 'vulnerabilities_found',
+            'progress_percentage', 'critical_count', 'high_count',
+            'medium_count', 'low_count', 'info_count', 'errors'
+        ]
+
+
+class ScanStatsSerializerTC3(serializers.Serializer):
+    total_scans = serializers.IntegerField()
+    completed_scans = serializers.IntegerField()
+    running_scans = serializers.IntegerField()
+    failed_scans = serializers.IntegerField()
+    total_vulnerabilities = serializers.IntegerField()
+    critical_vulnerabilities = serializers.IntegerField()
+    high_vulnerabilities = serializers.IntegerField()
+    medium_vulnerabilities = serializers.IntegerField()
+    low_vulnerabilities = serializers.IntegerField()
+    recent_scans = ScanSessionSerializerTC3(many=True)
+
+
+class VulnerabilitySummarySerializerTC3(serializers.Serializer):
+    scan_id = serializers.IntegerField()
+    total_vulnerabilities = serializers.IntegerField()
+    critical_count = serializers.IntegerField()
+    high_count = serializers.IntegerField()
+    medium_count = serializers.IntegerField()
+    low_count = serializers.IntegerField()
+    info_count = serializers.IntegerField()
+    by_type = serializers.DictField()
+    by_api = serializers.ListField()
+    scan_status = serializers.CharField()
+    scan_progress = serializers.FloatField()
+
+
+class VulnerabilityTemplateSerializerTC3(serializers.ModelSerializer):
+    class Meta:
+        model = VulnerabilityTemplateTC3
+        fields = '__all__'
+
+
+class ScanHistorySerializerTC3(serializers.Serializer):
+    scan_sessions = ScanSessionSerializerTC3(many=True)
+    total_count = serializers.IntegerField()
+    page = serializers.IntegerField()
+    page_size = serializers.IntegerField()
+    total_pages = serializers.IntegerField()

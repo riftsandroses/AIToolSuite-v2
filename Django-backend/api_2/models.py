@@ -228,3 +228,139 @@ class TestCredentialTC2(models.Model):
     
     def __str__(self):
         return f"{self.username}:{self.password}"
+
+
+class ScanResultTC3(models.Model):
+    VULNERABILITY_CHOICES = [
+        ('weak_password_policy', 'Weak or Default Password Policy'),
+        ('sql_injection', 'SQL Injection'),
+        ('xss', 'Cross-Site Scripting'),
+        ('csrf', 'Cross-Site Request Forgery'),
+        ('auth_bypass', 'Authentication Bypass'),
+    ]
+    
+    SEVERITY_CHOICES = [
+        ('critical', 'Critical'),
+        ('high', 'High'),
+        ('medium', 'Medium'),
+        ('low', 'Low'),
+        ('info', 'Info'),
+    ]
+    
+    STATUS_CHOICES = [
+        ('new', 'New'),
+        ('in_progress', 'In Progress'),
+        ('resolved', 'Resolved'),
+        ('false_positive', 'False Positive'),
+    ]
+    
+    scan_id = models.IntegerField()
+    api_id = models.IntegerField()  # Reference to api_orch_postmanapi.id
+    vulnerability_type = models.CharField(max_length=50, choices=VULNERABILITY_CHOICES)
+    severity = models.CharField(max_length=20, choices=SEVERITY_CHOICES)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='new')
+    
+    # API Details
+    api_name = models.CharField(max_length=255)
+    api_method = models.CharField(max_length=10)
+    api_url = models.TextField()
+    
+    # Vulnerability Details
+    title = models.CharField(max_length=255)
+    description = models.TextField()
+    impact = models.TextField()
+    recommendation = models.TextField()
+    
+    # Test Details
+    test_payload = models.JSONField(default=dict)
+    test_response = models.JSONField(default=dict)
+    exploit_successful = models.BooleanField(default=False)
+    
+    # Evidence
+    evidence = models.JSONField(default=dict)
+    screenshots = models.JSONField(default=list)
+    
+    # Metadata
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'api2_scan_results_tc3'
+        indexes = [
+            models.Index(fields=['scan_id']),
+            models.Index(fields=['vulnerability_type']),
+            models.Index(fields=['severity']),
+            models.Index(fields=['status']),
+            models.Index(fields=['created_at']),
+        ]
+    
+    def __str__(self):
+        return f"{self.api_name} - {self.vulnerability_type} ({self.severity})"
+
+
+class ScanSessionTC3(models.Model):
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('running', 'Running'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+        ('cancelled', 'Cancelled'),
+    ]
+    
+    scan_id = models.IntegerField(unique=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    started_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    
+    # Statistics
+    total_apis = models.IntegerField(default=0)
+    apis_scanned = models.IntegerField(default=0)
+    vulnerabilities_found = models.IntegerField(default=0)
+    
+    # Configuration
+    scan_config = models.JSONField(default=dict)
+    
+    # Results Summary
+    critical_count = models.IntegerField(default=0)
+    high_count = models.IntegerField(default=0)
+    medium_count = models.IntegerField(default=0)
+    low_count = models.IntegerField(default=0)
+    info_count = models.IntegerField(default=0)
+    
+    # Error tracking
+    errors = models.JSONField(default=list)
+    
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
+    
+    class Meta:
+        db_table = 'api2_scan_sessions_tc3'
+    
+    def __str__(self):
+        return f"Scan {self.scan_id} - {self.status}"
+    
+    @property
+    def progress_percentage(self):
+        if self.total_apis == 0:
+            return 0
+        return round((self.apis_scanned / self.total_apis) * 100, 2)
+
+
+class VulnerabilityTemplateTC3(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+    vulnerability_type = models.CharField(max_length=50)
+    title = models.CharField(max_length=255)
+    description = models.TextField()
+    impact = models.TextField()
+    recommendation = models.TextField()
+    test_payloads = models.JSONField(default=list)
+    detection_patterns = models.JSONField(default=list)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'api2_vulnerability_templates'
+    
+    def __str__(self):
+        return self.name
