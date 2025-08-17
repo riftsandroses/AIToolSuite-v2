@@ -17,7 +17,8 @@ class TestCaseDefinitions:
             'API2:2023': {
                 'TC-1': 'Missing/Weak Authentication on Sensitive Endpoints',
                 'TC-2': 'Unrestricted Credential Stuffing',
-                'TC-3': 'Weak Password Policy'
+                'TC-3': 'Weak Password Policy',
+                'TC-4': 'JWT Forgery/None Algorithm Exploit'
             },
             'API3:2023': {
                 'TC-1': 'Broken Object Property Level Authorization',

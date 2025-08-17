@@ -1,6 +1,6 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status
+from rest_framework import status, generics, filters
 from rest_framework.pagination import PageNumberPagination
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.permissions import IsAuthenticated
@@ -8,7 +8,7 @@ from django.utils import timezone
 from django.db.models import Q, Count
 from django.core.paginator import Paginator
 from datetime import timedelta
-from .models import ScanResultTC1, ScanSessionTC1, VulnerabilitySummaryTC1, ScanResultTC2, ScanSummaryTC2, TestCredentialTC2, ScanResultTC3, ScanSessionTC3, VulnerabilityTemplateTC3
+from .models import ScanResultTC1, ScanSessionTC1, VulnerabilitySummaryTC1, ScanResultTC2, ScanSummaryTC2, TestCredentialTC2, ScanResultTC3, ScanSessionTC3, VulnerabilityTemplateTC3, JWTScanTC4, JWTVulnerabilityTC4, JWTScanLogTC4, JWTScanConfigTC4, JWTTokenAnalysisTC4
 from .serializers import (
     ScanInitiateSerializerTC1, ScanResultSerializerTC1, ScanSessionSerializerTC1,
     VulnerabilitySummarySerializerTC1, ScanStatsSerializerTC1, ScanHistorySerializerTC1,
@@ -17,9 +17,12 @@ from .serializers import (
     ScanHistoryTC2Serializer, VulnerabilitySummaryTC2Serializer, TestCredentialTC2Serializer,
     ScanInitiateSerializerTC3, ScanResultSerializerTC3, ScanResultListSerializerTC3,
     ScanResultFilterSerializerTC3, ScanSessionSerializerTC3, ScanStatsSerializerTC3,
-    VulnerabilitySummarySerializerTC3, ScanHistorySerializerTC3, VulnerabilityTemplateSerializerTC3
+    VulnerabilitySummarySerializerTC3, ScanHistorySerializerTC3, VulnerabilityTemplateSerializerTC3,
+    JWTScanCreateSerializerTC4, JWTScanSerializerTC4, JWTScanDetailSerializerTC4,
+    JWTVulnerabilitySerializerTC4, JWTVulnerabilitySummarySerializerTC4, JWTScanStatsSerializerTC4, 
+    JWTVulnerabilityFilterSerializerTC4, JWTScanLogSerializerTC4, JWTTokenAnalysisSerializerTC4
 )
-from .services import APISecurityScannerTC1, APIOrchDataServiceTC1, CredentialStuffingServiceTC2, ScanAnalyticsServiceTC2, VulnerabilityScannerServiceTC3, ScanStatsServiceTC3
+from .services import APISecurityScannerTC1, APIOrchDataServiceTC1, CredentialStuffingServiceTC2, ScanAnalyticsServiceTC2, VulnerabilityScannerServiceTC3, ScanStatsServiceTC3, JWTScanServiceTC4
 from .tasks import run_security_scan_async
 import threading
 import logging
@@ -1238,3 +1241,388 @@ class ScanExportViewTC3(APIView):
             return Response({
                 'error': 'Scan session not found'
             }, status=status.HTTP_404_NOT_FOUND)
+
+
+class JWTScanCreateAPIViewTC4(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        serializer = JWTScanCreateSerializerTC4(data=request.data)
+        if serializer.is_valid():
+            scan_id = serializer.validated_data['scan_id']
+            config_data = serializer.validated_data.get('config', {})
+            
+            try:
+                # Start scan in background thread
+                scan_service = JWTScanServiceTC4()
+                
+                def run_scan():
+                    scan_service.start_scan(scan_id, request.user, config_data)
+                
+                thread = threading.Thread(target=run_scan)
+                thread.daemon = True
+                thread.start()
+                
+                return Response({
+                    'message': f'JWT vulnerability scan started for scan_id {scan_id}',
+                    'scan_id': scan_id,
+                    'status': 'initiated'
+                }, status=status.HTTP_201_CREATED)
+                
+            except Exception as e:
+                return Response({
+                    'error': f'Failed to start scan: {str(e)}'
+                }, status=status.HTTP_400_BAD_REQUEST)
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class JWTScanListAPIViewTC4(generics.ListAPIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    serializer_class = JWTScanSerializerTC4
+    filter_backends = [filters.OrderingFilter]
+    ordering_fields = ['created_at', 'scan_id', 'status']
+    ordering = ['-created_at']
+    
+    def get_queryset(self):
+        return JWTScanTC4.objects.select_related('created_by', 'config').all()
+
+
+class JWTScanDetailAPIViewTC4(generics.RetrieveAPIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    serializer_class = JWTScanDetailSerializerTC4
+    lookup_field = 'scan_id'
+    
+    def get_queryset(self):
+        return JWTScanTC4.objects.select_related('created_by', 'config').prefetch_related(
+            'vulnerabilities', 'logs', 'token_analyses'
+        ).all()
+
+
+class JWTScanStatusAPIViewTC4(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, scan_id):
+        try:
+            scan = JWTScanTC4.objects.get(scan_id=scan_id)
+            
+            progress_percentage = 0
+            if scan.total_apis > 0:
+                progress_percentage = (scan.scanned_apis / scan.total_apis) * 100
+            
+            # Estimate completion time
+            estimated_completion = None
+            if scan.status == 'in_progress' and scan.scanned_apis > 0:
+                elapsed_time = (timezone.now() - scan.created_at).total_seconds()
+                time_per_api = elapsed_time / scan.scanned_apis
+                remaining_apis = scan.total_apis - scan.scanned_apis
+                estimated_seconds = remaining_apis * time_per_api
+                estimated_completion = timezone.now() + timedelta(seconds=estimated_seconds)
+            
+            return Response({
+                'scan_id': scan.scan_id,
+                'status': scan.status,
+                'status_display': scan.get_status_display(),
+                'total_apis': scan.total_apis,
+                'scanned_apis': scan.scanned_apis,
+                'vulnerable_apis': scan.vulnerable_apis,
+                'progress_percentage': round(progress_percentage, 2),
+                'created_at': scan.created_at,
+                'updated_at': scan.updated_at,
+                'completed_at': scan.completed_at,
+                'scan_duration': scan.scan_duration,
+                'estimated_completion_time': estimated_completion
+            })
+            
+        except JWTScanTC4.DoesNotExist:
+            return Response({
+                'error': f'Scan with ID {scan_id} not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+
+
+class JWTScanStatsAPIViewTC4(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, scan_id):
+        try:
+            scan = JWTScanTC4.objects.get(scan_id=scan_id)
+            
+            # Get vulnerability statistics
+            vulnerabilities_by_severity = JWTVulnerabilityTC4.objects.filter(
+                scan=scan, is_vulnerable=True
+            ).values('severity').annotate(count=Count('id'))
+            
+            vulnerabilities_by_type = JWTVulnerabilityTC4.objects.filter(
+                scan=scan, is_vulnerable=True
+            ).values('vulnerability_type').annotate(count=Count('id'))
+            
+            severity_stats = {item['severity']: item['count'] for item in vulnerabilities_by_severity}
+            type_stats = {item['vulnerability_type']: item['count'] for item in vulnerabilities_by_type}
+            
+            progress_percentage = 0
+            if scan.total_apis > 0:
+                progress_percentage = (scan.scanned_apis / scan.total_apis) * 100
+            
+            # Estimate completion time
+            estimated_completion = None
+            if scan.status == 'in_progress' and scan.scanned_apis > 0:
+                elapsed_time = (timezone.now() - scan.created_at).total_seconds()
+                time_per_api = elapsed_time / scan.scanned_apis
+                remaining_apis = scan.total_apis - scan.scanned_apis
+                estimated_seconds = remaining_apis * time_per_api
+                estimated_completion = timezone.now() + timedelta(seconds=estimated_seconds)
+            
+            serializer = JWTScanStatsSerializerTC4(data={
+                'scan_id': scan.scan_id,
+                'total_apis': scan.total_apis,
+                'scanned_apis': scan.scanned_apis,
+                'vulnerable_apis': scan.vulnerable_apis,
+                'progress_percentage': round(progress_percentage, 2),
+                'vulnerabilities_by_severity': severity_stats,
+                'vulnerabilities_by_type': type_stats,
+                'estimated_completion_time': estimated_completion
+            })
+            serializer.is_valid()
+            return Response(serializer.data)
+            
+        except JWTScanTC4.DoesNotExist:
+            return Response({
+                'error': f'Scan with ID {scan_id} not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+
+
+class JWTScanHistoryAPIViewTC4(generics.ListAPIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    serializer_class = JWTScanSerializerTC4
+    filter_backends = [filters.OrderingFilter]
+    ordering_fields = ['created_at', 'scan_id', 'completed_at']
+    ordering = ['-created_at']
+    
+    def get_queryset(self):
+        queryset = JWTScanTC4.objects.select_related('created_by').all()
+        
+        # Filter by date range if provided
+        date_from = self.request.query_params.get('date_from')
+        date_to = self.request.query_params.get('date_to')
+        
+        if date_from:
+            queryset = queryset.filter(created_at__gte=date_from)
+        if date_to:
+            queryset = queryset.filter(created_at__lte=date_to)
+        
+        # Filter by status
+        status_filter = self.request.query_params.get('status')
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        
+        # Filter by user
+        user_id = self.request.query_params.get('user_id')
+        if user_id:
+            queryset = queryset.filter(created_by_id=user_id)
+        
+        return queryset
+
+
+class JWTVulnerabilityListAPIViewTC4(generics.ListAPIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    serializer_class = JWTVulnerabilitySerializerTC4
+    filter_backends = [filters.OrderingFilter]
+    ordering_fields = ['created_at', 'severity', 'vulnerability_type']
+    ordering = ['-created_at']
+    
+    def get_queryset(self):
+        queryset = JWTVulnerabilityTC4.objects.select_related('scan').all()
+        
+        # Apply filters
+        filter_serializer = JWTVulnerabilityFilterSerializerTC4(data=self.request.query_params)
+        if filter_serializer.is_valid():
+            filters = filter_serializer.validated_data
+            
+            if 'scan_id' in filters:
+                queryset = queryset.filter(scan__scan_id=filters['scan_id'])
+            
+            if 'severity' in filters:
+                queryset = queryset.filter(severity=filters['severity'])
+            
+            if 'vulnerability_type' in filters:
+                queryset = queryset.filter(vulnerability_type=filters['vulnerability_type'])
+            
+            if 'is_vulnerable' in filters:
+                queryset = queryset.filter(is_vulnerable=filters['is_vulnerable'])
+            
+            if 'api_method' in filters:
+                queryset = queryset.filter(api_method__iexact=filters['api_method'])
+            
+            if 'date_from' in filters:
+                queryset = queryset.filter(created_at__gte=filters['date_from'])
+            
+            if 'date_to' in filters:
+                queryset = queryset.filter(created_at__lte=filters['date_to'])
+        
+        return queryset
+
+
+class JWTVulnerabilitySummaryAPIViewTC4(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        # Overall statistics
+        total_scans = JWTScanTC4.objects.count()
+        total_apis_scanned = JWTScanTC4.objects.aggregate(
+            total=Count('scanned_apis')
+        )['total'] or 0
+        total_vulnerabilities = JWTVulnerabilityTC4.objects.filter(is_vulnerable=True).count()
+        
+        # Vulnerability breakdown by type
+        vulnerability_by_type = dict(
+            JWTVulnerabilityTC4.objects.filter(is_vulnerable=True)
+            .values('vulnerability_type')
+            .annotate(count=Count('id'))
+            .values_list('vulnerability_type', 'count')
+        )
+        
+        # Vulnerability breakdown by severity
+        vulnerability_by_severity = dict(
+            JWTVulnerabilityTC4.objects.filter(is_vulnerable=True)
+            .values('severity')
+            .annotate(count=Count('id'))
+            .values_list('severity', 'count')
+        )
+        
+        # Recent scans
+        recent_scans = JWTScanTC4.objects.select_related('created_by').order_by('-created_at')[:10]
+        
+        data = {
+            'total_scans': total_scans,
+            'total_apis_scanned': total_apis_scanned,
+            'total_vulnerabilities': total_vulnerabilities,
+            'vulnerability_by_type': vulnerability_by_type,
+            'vulnerability_by_severity': vulnerability_by_severity,
+            'recent_scans': JWTScanSerializerTC4(recent_scans, many=True).data
+        }
+        
+        return Response(data)
+
+
+class JWTVulnerabilityDetailAPIViewTC4(generics.RetrieveAPIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    serializer_class = JWTVulnerabilitySerializerTC4
+    queryset = JWTVulnerabilityTC4.objects.select_related('scan').all()
+
+
+class JWTScanLogsAPIViewTC4(generics.ListAPIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    serializer_class = JWTScanLogSerializerTC4
+    filter_backends = [filters.OrderingFilter]
+    ordering_fields = ['timestamp', 'level']
+    ordering = ['-timestamp']
+    
+    def get_queryset(self):
+        scan_id = self.kwargs.get('scan_id')
+        queryset = JWTScanLogTC4.objects.filter(scan__scan_id=scan_id)
+        
+        # Filter by log level
+        level = self.request.query_params.get('level')
+        if level:
+            queryset = queryset.filter(level=level)
+        
+        return queryset
+
+
+class JWTTokenAnalysisListAPIViewTC4(generics.ListAPIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    serializer_class = JWTTokenAnalysisSerializerTC4
+    filter_backends = [filters.OrderingFilter]
+    ordering_fields = ['created_at']
+    ordering = ['-created_at']
+    
+    def get_queryset(self):
+        scan_id = self.kwargs.get('scan_id')
+        return JWTTokenAnalysisTC4.objects.filter(scan__scan_id=scan_id)
+
+
+class JWTScanDeleteAPIViewTC4(generics.DestroyAPIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    lookup_field = 'scan_id'
+    
+    def get_queryset(self):
+        return JWTScanTC4.objects.all()
+    
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance.status == 'in_progress':
+            return Response({
+                'error': 'Cannot delete scan that is currently in progress'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        self.perform_destroy(instance)
+        return Response({
+            'message': f'Scan {instance.scan_id} deleted successfully'
+        }, status=status.HTTP_200_OK)
+
+
+class JWTScannerAutoStatusAPIViewTC4(APIView):
+    """Get status of the auto-scanner service"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        """Get auto-service status"""
+        try:
+            from .startup_service import get_auto_service_status
+            status = get_auto_service_status()
+            
+            return Response({
+                'auto_service': status,
+                'message': 'Auto JWT Scanner is running' if status['running'] else 'Auto JWT Scanner is stopped',
+                'timestamp': timezone.now()
+            })
+            
+        except Exception as e:
+            return Response({
+                'error': f'Failed to get auto-service status: {str(e)}',
+                'auto_service': {'running': False}
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def post(self, request):
+        """Control auto-service (start/stop)"""
+        action = request.data.get('action', '').lower()
+        
+        try:
+            from .startup_service import start_jwt_scanner_auto, stop_jwt_scanner_auto
+            
+            if action == 'start':
+                success = start_jwt_scanner_auto()
+                return Response({
+                    'message': 'Auto-service started' if success else 'Failed to start auto-service',
+                    'success': success
+                })
+            
+            elif action == 'stop':
+                stop_jwt_scanner_auto()
+                return Response({
+                    'message': 'Auto-service stopped',
+                    'success': True
+                })
+            
+            else:
+                return Response({
+                    'error': 'Invalid action. Use "start" or "stop"'
+                }, status=status.HTTP_400_BAD_REQUEST)
+                
+        except Exception as e:
+            return Response({
+                'error': f'Failed to control auto-service: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

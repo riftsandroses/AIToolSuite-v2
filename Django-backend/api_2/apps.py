@@ -1,6 +1,13 @@
 from django.apps import AppConfig
 from django.db import connection
 from django.core.management import call_command
+from django.db.models.signals import post_migrate
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Keep a global reference so we don’t start multiple times
+_auto_scanner_instance = None
 
 
 class Api2Config(AppConfig):
@@ -8,25 +15,41 @@ class Api2Config(AppConfig):
     name = 'api_2'
 
     def ready(self):
-        """Auto-populate templates when the app starts"""
+        """Auto-populate templates and hook JWT scanner startup after migrations"""
+
+        # --- TC3 vulnerability template auto-population ---
         try:
-            # Check if database is migrated and table exists
             with connection.cursor() as cursor:
                 cursor.execute("""
                     SELECT COUNT(*) FROM information_schema.tables 
                     WHERE table_name = 'api2_vulnerability_templates'
                 """)
                 table_exists = cursor.fetchone()[0] > 0
-            
+
             if table_exists:
-                # Check if templates are already populated
                 from .models import VulnerabilityTemplateTC3
-                
                 if VulnerabilityTemplateTC3.objects.count() == 0:
-                    print("Auto-populating vulnerability templates...")
+                    logger.info("Auto-populating vulnerability templates...")
                     call_command('populate_templates_tc3')
-                    print("Vulnerability templates populated successfully!")
-                    
-        except Exception as e:
+                    logger.info("Vulnerability templates populated successfully!")
+
+        except Exception:
             # Silently fail during migrations or if database isn't ready
             pass
+
+        # --- Hook JWT auto-scanner startup after migrations ---
+        post_migrate.connect(start_jwt_scanner_after_migrate, sender=self)
+
+
+def start_jwt_scanner_after_migrate(sender, **kwargs):
+    """Start JWT Scanner Auto-Service only after migrations are applied"""
+    global _auto_scanner_instance
+    if _auto_scanner_instance is None:
+        try:
+            from .startup_service import JWTScannerAutoServiceTC4
+            service = JWTScannerAutoServiceTC4()
+            service.start()
+            _auto_scanner_instance = service
+            logger.info("JWT Scanner Auto-Service started successfully (post_migrate)")
+        except Exception as e:
+            logger.error(f"Failed to start JWT Scanner Auto-Service after migrate: {str(e)}")

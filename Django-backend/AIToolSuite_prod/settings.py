@@ -504,3 +504,25 @@ CLI_TOOLS = {
         'timeout': 900
     }
 }
+
+# API-2 TC-4 JWT Forgery/None Algorithm Exploit
+JWT_SCANNER_CONFIG = {
+    'REQUEST_TIMEOUT': 30,  # seconds
+    'MAX_RETRIES': 3,
+    'MAX_RESPONSE_SIZE': 1000,  # characters to store in DB
+    'CONCURRENT_SCANS': 1,  # Number of concurrent scans allowed
+    'DEFAULT_WEAK_SECRETS': [
+        'secret', 'password', '123456', 'admin', 'test', 'key',
+        'jwt', 'token', 'your-256-bit-secret', 'supersecret'
+    ],
+    'DEFAULT_ROLE_PAYLOADS': [
+        {'role': 'admin'},
+        {'role': 'administrator'},
+        {'is_admin': True},
+        {'admin': True},
+        {'user_type': 'admin'},
+        {'permissions': ['admin']},
+        {'level': 'admin'},
+        {'privilege': 'admin'}
+    ]
+}

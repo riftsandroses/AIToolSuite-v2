@@ -1,6 +1,12 @@
 from rest_framework import serializers
-from .models import ScanResultTC1, ScanSessionTC1, VulnerabilitySummaryTC1, ScanResultTC2, ScanSummaryTC2, TestCredentialTC2, ScanResultTC3, ScanSessionTC3, VulnerabilityTemplateTC3
 from django.utils import timezone
+from .models import (
+    ScanResultTC1, ScanSessionTC1, VulnerabilitySummaryTC1, 
+    ScanResultTC2, ScanSummaryTC2, TestCredentialTC2, 
+    ScanResultTC3, ScanSessionTC3, VulnerabilityTemplateTC3, 
+    JWTScanTC4, JWTVulnerabilityTC4, JWTScanLogTC4, 
+    JWTScanConfigTC4, JWTTokenAnalysisTC4
+)
 
 
 class ScanInitiateSerializerTC1(serializers.Serializer):
@@ -325,3 +331,96 @@ class ScanHistorySerializerTC3(serializers.Serializer):
     page = serializers.IntegerField()
     page_size = serializers.IntegerField()
     total_pages = serializers.IntegerField()
+
+
+class JWTScanConfigSerializerTC4(serializers.ModelSerializer):
+    class Meta:
+        model = JWTScanConfigTC4
+        exclude = ['scan']
+
+
+class JWTTokenAnalysisSerializerTC4(serializers.ModelSerializer):
+    class Meta:
+        model = JWTTokenAnalysisTC4
+        fields = '__all__'
+
+
+class JWTVulnerabilitySerializerTC4(serializers.ModelSerializer):
+    severity_display = serializers.CharField(source='get_severity_display', read_only=True)
+    vulnerability_type_display = serializers.CharField(source='get_vulnerability_type_display', read_only=True)
+    
+    class Meta:
+        model = JWTVulnerabilityTC4
+        fields = '__all__'
+
+
+class JWTScanLogSerializerTC4(serializers.ModelSerializer):
+    level_display = serializers.CharField(source='get_level_display', read_only=True)
+    
+    class Meta:
+        model = JWTScanLogTC4
+        fields = '__all__'
+
+
+class JWTScanSerializerTC4(serializers.ModelSerializer):
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    config = JWTScanConfigSerializerTC4(read_only=True)
+    created_by_username = serializers.CharField(source='created_by.username', read_only=True)
+    
+    class Meta:
+        model = JWTScanTC4
+        fields = '__all__'
+
+
+class JWTScanDetailSerializerTC4(serializers.ModelSerializer):
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    config = JWTScanConfigSerializerTC4(read_only=True)
+    vulnerabilities = JWTVulnerabilitySerializerTC4(many=True, read_only=True)
+    logs = JWTScanLogSerializerTC4(many=True, read_only=True)
+    token_analyses = JWTTokenAnalysisSerializerTC4(many=True, read_only=True)
+    created_by_username = serializers.CharField(source='created_by.username', read_only=True)
+    
+    class Meta:
+        model = JWTScanTC4
+        fields = '__all__'
+
+
+class JWTScanCreateSerializerTC4(serializers.Serializer):
+    scan_id = serializers.IntegerField()
+    config = JWTScanConfigSerializerTC4(required=False)
+    
+    def validate_scan_id(self, value):
+        # Check if scan already exists
+        if JWTScanTC4.objects.filter(scan_id=value).exists():
+            raise serializers.ValidationError(f"Scan with ID {value} already exists")
+        return value
+
+
+class JWTVulnerabilitySummarySerializerTC4(serializers.Serializer):
+    total_scans = serializers.IntegerField()
+    total_apis_scanned = serializers.IntegerField()
+    total_vulnerabilities = serializers.IntegerField()
+    vulnerability_by_type = serializers.DictField()
+    vulnerability_by_severity = serializers.DictField()
+    recent_scans = JWTScanSerializerTC4(many=True)
+
+
+class JWTScanStatsSerializerTC4(serializers.Serializer):
+    scan_id = serializers.IntegerField()
+    total_apis = serializers.IntegerField()
+    scanned_apis = serializers.IntegerField()
+    vulnerable_apis = serializers.IntegerField()
+    progress_percentage = serializers.FloatField()
+    vulnerabilities_by_severity = serializers.DictField()
+    vulnerabilities_by_type = serializers.DictField()
+    estimated_completion_time = serializers.DateTimeField(allow_null=True)
+
+
+class JWTVulnerabilityFilterSerializerTC4(serializers.Serializer):
+    scan_id = serializers.IntegerField(required=False)
+    severity = serializers.ChoiceField(choices=JWTVulnerabilityTC4.SEVERITY_CHOICES, required=False)
+    vulnerability_type = serializers.ChoiceField(choices=JWTVulnerabilityTC4.VULNERABILITY_TYPES, required=False)
+    is_vulnerable = serializers.BooleanField(required=False)
+    api_method = serializers.CharField(required=False)
+    date_from = serializers.DateTimeField(required=False)
+    date_to = serializers.DateTimeField(required=False)

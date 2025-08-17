@@ -31,7 +31,20 @@ from .views import (
     ScanCancelViewTC3,
     VulnerabilityTypesViewTC3,
     BulkScanResultsViewTC3,
-    ScanExportViewTC3
+    ScanExportViewTC3,
+    JWTScanCreateAPIViewTC4,
+    JWTScanListAPIViewTC4,
+    JWTScanDetailAPIViewTC4,
+    JWTScanStatusAPIViewTC4,
+    JWTScanStatsAPIViewTC4,
+    JWTScanHistoryAPIViewTC4,
+    JWTVulnerabilityListAPIViewTC4,
+    JWTVulnerabilitySummaryAPIViewTC4,
+    JWTVulnerabilityDetailAPIViewTC4,
+    JWTScanLogsAPIViewTC4,
+    JWTTokenAnalysisListAPIViewTC4,
+    JWTScanDeleteAPIViewTC4,
+    JWTScannerAutoStatusAPIViewTC4
 )
 
 app_name = 'api_2'
@@ -76,4 +89,19 @@ urlpatterns = [
     path('history-tc3/', ScanHistoryViewTC3.as_view(), name='scan-history'),
     path('templates-tc3/', VulnerabilityTemplatesViewTC3.as_view(), name='vulnerability-templates'),
     path('vulnerability-types-tc3/', VulnerabilityTypesViewTC3.as_view(), name='vulnerability-types'),
+
+    # TC-4 JWT Forgery/None Algorithm Exploit
+    path('jwt-scans-tc4/', JWTScanListAPIViewTC4.as_view(), name='jwt-scan-list'),
+    path('jwt-scans-tc4/create/', JWTScanCreateAPIViewTC4.as_view(), name='jwt-scan-create'),
+    path('jwt-scans-tc4/<int:scan_id>/', JWTScanDetailAPIViewTC4.as_view(), name='jwt-scan-detail'),
+    path('jwt-scans-tc4/<int:scan_id>/status/', JWTScanStatusAPIViewTC4.as_view(), name='jwt-scan-status'),
+    path('jwt-scans-tc4/<int:scan_id>/stats/', JWTScanStatsAPIViewTC4.as_view(), name='jwt-scan-stats'),
+    path('jwt-scans-tc4/<int:scan_id>/delete/', JWTScanDeleteAPIViewTC4.as_view(), name='jwt-scan-delete'),
+    path('jwt-scans-tc4/history/', JWTScanHistoryAPIViewTC4.as_view(), name='jwt-scan-history'),
+    path('jwt-vulnerabilities-tc4/', JWTVulnerabilityListAPIViewTC4.as_view(), name='jwt-vulnerability-list'),
+    path('jwt-vulnerabilities-tc4/summary/', JWTVulnerabilitySummaryAPIViewTC4.as_view(), name='jwt-vulnerability-summary'),
+    path('jwt-vulnerabilities-tc4/<int:pk>/', JWTVulnerabilityDetailAPIViewTC4.as_view(), name='jwt-vulnerability-detail'),
+    path('jwt-scans-tc4/<int:scan_id>/logs/', JWTScanLogsAPIViewTC4.as_view(), name='jwt-scan-logs'),
+    path('jwt-scans-tc4/<int:scan_id>/token-analyses/', JWTTokenAnalysisListAPIViewTC4.as_view(), name='jwt-token-analysis-list'),
+    path('jwt-scanner-tc4/auto-status/', JWTScannerAutoStatusAPIViewTC4.as_view(), name='jwt-scanner-auto-status'),
 ]

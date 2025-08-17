@@ -364,3 +364,148 @@ class VulnerabilityTemplateTC3(models.Model):
     
     def __str__(self):
         return self.name
+
+
+class JWTScanTC4(models.Model):
+    SCAN_STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('in_progress', 'In Progress'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+    ]
+    
+    scan_id = models.IntegerField(unique=True)
+    status = models.CharField(max_length=20, choices=SCAN_STATUS_CHOICES, default='pending')
+    total_apis = models.IntegerField(default=0)
+    scanned_apis = models.IntegerField(default=0)
+    vulnerable_apis = models.IntegerField(default=0)
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    scan_duration = models.FloatField(null=True, blank=True)  # in seconds
+    
+    class Meta:
+        db_table = 'jwt_scan_tc4'
+        ordering = ['-created_at']
+
+
+class JWTVulnerabilityTC4(models.Model):
+    SEVERITY_CHOICES = [
+        ('low', 'Low'),
+        ('medium', 'Medium'),
+        ('high', 'High'),
+        ('critical', 'Critical'),
+    ]
+    
+    VULNERABILITY_TYPES = [
+        ('none_algorithm', 'None Algorithm'),
+        ('weak_secret', 'Weak Secret'),
+        ('algorithm_confusion', 'Algorithm Confusion'),
+        ('payload_manipulation', 'Payload Manipulation'),
+        ('expired_token_accepted', 'Expired Token Accepted'),
+        ('malformed_token_accepted', 'Malformed Token Accepted'),
+    ]
+    
+    scan = models.ForeignKey(JWTScanTC4, on_delete=models.CASCADE, related_name='vulnerabilities')
+    api_id = models.IntegerField()  # Reference to api_orch_postmanapi.id
+    api_name = models.CharField(max_length=255)
+    api_url = models.URLField()
+    api_method = models.CharField(max_length=10)
+    
+    vulnerability_type = models.CharField(max_length=50, choices=VULNERABILITY_TYPES)
+    severity = models.CharField(max_length=10, choices=SEVERITY_CHOICES)
+    is_vulnerable = models.BooleanField(default=False)
+    
+    original_token = models.TextField(null=True, blank=True)
+    forged_token = models.TextField(null=True, blank=True)
+    original_response_code = models.IntegerField(null=True, blank=True)
+    forged_response_code = models.IntegerField(null=True, blank=True)
+    
+    original_response_body = models.TextField(null=True, blank=True)
+    forged_response_body = models.TextField(null=True, blank=True)
+    
+    payload_changes = models.JSONField(default=dict)  # What was changed in payload
+    exploitation_details = models.TextField(null=True, blank=True)
+    ai_analysis = models.TextField(null=True, blank=True)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'jwt_vulnerability_tc4'
+        ordering = ['-created_at']
+        unique_together = ['scan', 'api_id', 'vulnerability_type']
+
+
+class JWTScanLogTC4(models.Model):
+    LOG_LEVELS = [
+        ('info', 'Info'),
+        ('warning', 'Warning'),
+        ('error', 'Error'),
+        ('debug', 'Debug'),
+    ]
+    
+    scan = models.ForeignKey(JWTScanTC4, on_delete=models.CASCADE, related_name='logs')
+    level = models.CharField(max_length=10, choices=LOG_LEVELS)
+    message = models.TextField()
+    api_id = models.IntegerField(null=True, blank=True)
+    timestamp = models.DateTimeField(auto_now_add=True)
+    additional_data = models.JSONField(default=dict)
+    
+    class Meta:
+        db_table = 'jwt_scan_log_tc4'
+        ordering = ['-timestamp']
+
+
+class JWTScanConfigTC4(models.Model):
+    scan = models.OneToOneField(JWTScanTC4, on_delete=models.CASCADE, related_name='config')
+    
+    # Test configurations
+    test_none_algorithm = models.BooleanField(default=True)
+    test_weak_secrets = models.BooleanField(default=True)
+    test_algorithm_confusion = models.BooleanField(default=True)
+    test_payload_manipulation = models.BooleanField(default=True)
+    test_expired_tokens = models.BooleanField(default=True)
+    test_malformed_tokens = models.BooleanField(default=True)
+    
+    # Payload manipulation settings
+    role_escalation_payloads = models.JSONField(default=list)  # [{"role": "admin"}, {"is_admin": true}]
+    custom_payloads = models.JSONField(default=list)
+    
+    # Secret bruteforce list
+    weak_secrets = models.JSONField(default=list)
+    
+    # Timeout settings
+    request_timeout = models.IntegerField(default=30)  # seconds
+    max_retries = models.IntegerField(default=3)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'jwt_scan_config_tc4'
+
+
+class JWTTokenAnalysisTC4(models.Model):
+    scan = models.ForeignKey(JWTScanTC4, on_delete=models.CASCADE, related_name='token_analyses')
+    api_id = models.IntegerField()
+    
+    original_token = models.TextField()
+    token_header = models.JSONField(default=dict)
+    token_payload = models.JSONField(default=dict)
+    token_signature = models.TextField(null=True, blank=True)
+    
+    algorithm = models.CharField(max_length=20, null=True, blank=True)
+    issuer = models.CharField(max_length=255, null=True, blank=True)
+    expiry = models.DateTimeField(null=True, blank=True)
+    
+    # AI Analysis
+    ai_risk_assessment = models.TextField(null=True, blank=True)
+    ai_recommendations = models.TextField(null=True, blank=True)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = 'jwt_token_analysis_tc4'
+        ordering = ['-created_at']

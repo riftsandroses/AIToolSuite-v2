@@ -1,20 +1,31 @@
-import re
-import time
+# Standard library imports
+import base64
+import hashlib
+import hmac
 import json
 import logging
+import re
 import threading
-from datetime import timedelta
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Any, Tuple
 from urllib.parse import urljoin, urlparse
-from concurrent.futures import ThreadPoolExecutor, as_completed
+
+# Third-party imports
+import jwt
 import openai
 import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 from django.conf import settings
-from django.utils import timezone
+from django.contrib.auth.models import User
 from django.db import transaction, connection
 from django.db.models import Count, Avg, Q
+from django.utils import timezone as django_timezone
+from openai import OpenAI
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+# Local application imports
 from .models import (
     ScanResultTC1,
     ScanSessionTC1,
@@ -24,7 +35,12 @@ from .models import (
     TestCredentialTC2,
     ScanResultTC3, 
     ScanSessionTC3, 
-    VulnerabilityTemplateTC3
+    VulnerabilityTemplateTC3,
+    JWTScanTC4, 
+    JWTVulnerabilityTC4, 
+    JWTScanLogTC4, 
+    JWTScanConfigTC4, 
+    JWTTokenAnalysisTC4
 )
 
 logger = logging.getLogger(__name__)
@@ -192,10 +208,19 @@ class APISecurityScannerTC1:
             if not apis:
                 return {"error": "No APIs found for the given scan_id", "success": False}
             
-            # Get existing session
-            session = ScanSessionTC1.objects.get(scan_id=scan_id)
-            session.status = 'scanning'
-            session.save()
+            # Get existing session - HANDLE DoesNotExist PROPERLY
+            try:
+                session = ScanSessionTC1.objects.get(scan_id=scan_id)
+            except ScanSessionTC1.DoesNotExist:
+                # Create new session if it doesn't exist
+                session = ScanSessionTC1.objects.create(
+                    scan_id=scan_id,
+                    status='scanning',
+                    total_apis=len(apis)
+                )
+            else:
+                session.status = 'scanning'
+                session.save()
             
             # Start scanning APIs
             self._scan_apis(apis, scan_id)
@@ -218,15 +243,18 @@ class APISecurityScannerTC1:
             
         except Exception as e:
             logger.error(f"Error in scan execution: {str(e)}")
-            # Update session to failed
+            # Update session to failed - REMOVE NESTED TRANSACTION
             try:
+                # Don't use atomic here since we're already in one
                 session = ScanSessionTC1.objects.get(scan_id=scan_id)
                 session.status = 'failed'
                 session.completed_at = timezone.now()
                 session.save()
-            except:
-                pass
-            return {"error": str(e), "success": False}
+            except Exception as session_error:
+                logger.error(f"Failed to update session status: {str(session_error)}")
+            
+            # Re-raise the exception to rollback the transaction
+            raise
 
     def _scan_apis(self, apis: List[Dict], scan_id: int):
         """Scan individual APIs for vulnerabilities"""
@@ -1186,106 +1214,124 @@ class VulnerabilityScannerServiceTC3:
                 'ai_confidence': 0.0
             }]
     
-    @transaction.atomic
     def initiate_scan(self, scan_id, vulnerability_types=['weak_password_policy'], config=None):
         """Start vulnerability scan for given scan_id"""
+        scan_session = None
+        
         try:
-            # Create or update scan session
-            scan_session, created = ScanSessionTC3.objects.get_or_create(
-                scan_id=scan_id,
-                defaults={
-                    'status': 'running',
-                    'scan_config': config or {}
-                }
-            )
-            
-            if not created:
-                scan_session.status = 'running'
-                scan_session.started_at = timezone.now()
-                scan_session.save()
-            
-            # Get API data and JWT token
-            api_list = self.get_api_data(scan_id)
-            jwt_token = self.get_jwt_token(scan_id)
-            
-            scan_session.total_apis = len(api_list)
-            scan_session.save()
-            
-            # Process each API
-            vulnerabilities_found = 0
-            
-            for api_data in api_list:
-                try:
-                    if 'weak_password_policy' in vulnerability_types:
-                        results = self.test_weak_password_policy(api_data, jwt_token)
-                        
-                        for result in results:
-                            if result.get('vulnerable', False):
-                                # Save vulnerability to database
-                                vulnerability = ScanResultTC3.objects.create(
-                                    scan_id=scan_id,
-                                    api_id=api_data['id'],
-                                    vulnerability_type='weak_password_policy',
-                                    severity=result.get('severity', 'medium'),
-                                    api_name=api_data.get('name', ''),
-                                    api_method=api_data.get('method', ''),
-                                    api_url=api_data.get('url', ''),
-                                    title='Weak or Default Password Policy',
-                                    description='API accepts weak passwords that can be easily guessed or brute-forced.',
-                                    impact='Attackers can gain unauthorized access using common passwords.',
-                                    recommendation='Implement strong password policy with minimum length, complexity requirements, and rate limiting.',
-                                    test_payload=result.get('test_payload', {}),
-                                    test_response=result.get('response_data', {}),
-                                    exploit_successful=result.get('exploit_successful', False),
-                                    evidence=result.get('evidence', {})
-                                )
-                                
-                                vulnerabilities_found += 1
-                                
-                                # Update severity counts
-                                severity = result.get('severity', 'medium')
-                                if severity == 'critical':
-                                    scan_session.critical_count += 1
-                                elif severity == 'high':
-                                    scan_session.high_count += 1
-                                elif severity == 'medium':
-                                    scan_session.medium_count += 1
-                                elif severity == 'low':
-                                    scan_session.low_count += 1
-                                else:
-                                    scan_session.info_count += 1
+            with transaction.atomic():
+                # Create or update scan session
+                scan_session, created = ScanSessionTC3.objects.get_or_create(
+                    scan_id=scan_id,
+                    defaults={
+                        'status': 'running',
+                        'scan_config': config or {}
+                    }
+                )
                 
-                except Exception as e:
-                    logger.error(f"Error processing API {api_data.get('name')}: {str(e)}")
-                    scan_session.errors.append({
-                        'api_id': api_data['id'],
-                        'error': str(e),
-                        'timestamp': timezone.now().isoformat()
-                    })
+                if not created:
+                    scan_session.status = 'running'
+                    scan_session.started_at = timezone.now()
+                    scan_session.save()
                 
-                # Update progress
-                scan_session.apis_scanned += 1
-                scan_session.vulnerabilities_found = vulnerabilities_found
+                # Get API data and JWT token
+                api_list = self.get_api_data(scan_id)
+                jwt_token = self.get_jwt_token(scan_id)
+                
+                scan_session.total_apis = len(api_list)
                 scan_session.save()
-            
-            # Complete scan
-            scan_session.status = 'completed'
-            scan_session.completed_at = timezone.now()
-            scan_session.save()
-            
-            return scan_session
-            
+                
+                # Process each API
+                vulnerabilities_found = 0
+                
+                for api_data in api_list:
+                    try:
+                        if 'weak_password_policy' in vulnerability_types:
+                            results = self.test_weak_password_policy(api_data, jwt_token)
+                            
+                            for result in results:
+                                if result.get('vulnerable', False):
+                                    # Save vulnerability to database
+                                    vulnerability = ScanResultTC3.objects.create(
+                                        scan_id=scan_id,
+                                        api_id=api_data['id'],
+                                        vulnerability_type='weak_password_policy',
+                                        severity=result.get('severity', 'medium'),
+                                        api_name=api_data.get('name', ''),
+                                        api_method=api_data.get('method', ''),
+                                        api_url=api_data.get('url', ''),
+                                        title='Weak or Default Password Policy',
+                                        description='API accepts weak passwords that can be easily guessed or brute-forced.',
+                                        impact='Attackers can gain unauthorized access using common passwords.',
+                                        recommendation='Implement strong password policy with minimum length, complexity requirements, and rate limiting.',
+                                        test_payload=result.get('test_payload', {}),
+                                        test_response=result.get('response_data', {}),
+                                        exploit_successful=result.get('exploit_successful', False),
+                                        evidence=result.get('evidence', {})
+                                    )
+                                    
+                                    vulnerabilities_found += 1
+                                    
+                                    # Update severity counts
+                                    severity = result.get('severity', 'medium')
+                                    if severity == 'critical':
+                                        scan_session.critical_count += 1
+                                    elif severity == 'high':
+                                        scan_session.high_count += 1
+                                    elif severity == 'medium':
+                                        scan_session.medium_count += 1
+                                    elif severity == 'low':
+                                        scan_session.low_count += 1
+                                    else:
+                                        scan_session.info_count += 1
+                    
+                    except Exception as api_error:
+                        logger.error(f"Error processing API {api_data.get('name')}: {str(api_error)}")
+                        # Handle API-specific errors without breaking the transaction
+                        if hasattr(scan_session, 'errors'):
+                            if not isinstance(scan_session.errors, list):
+                                scan_session.errors = []
+                            scan_session.errors.append({
+                                'api_id': api_data['id'],
+                                'error': str(api_error),
+                                'timestamp': timezone.now().isoformat()
+                            })
+                        continue  # Continue with next API instead of failing entire scan
+                    
+                    # Update progress
+                    scan_session.apis_scanned += 1
+                    scan_session.vulnerabilities_found = vulnerabilities_found
+                    scan_session.save()
+                
+                # Complete scan
+                scan_session.status = 'completed'
+                scan_session.completed_at = timezone.now()
+                scan_session.save()
+                
+                return scan_session
+                
         except Exception as e:
             logger.error(f"Scan initiation failed: {str(e)}")
-            if 'scan_session' in locals():
-                scan_session.status = 'failed'
-                scan_session.errors.append({
-                    'error': f'Scan failed: {str(e)}',
-                    'timestamp': timezone.now().isoformat()
-                })
-                scan_session.save()
+            
+            # Update scan session status outside of the failed transaction
+            if scan_session:
+                try:
+                    # Use a separate transaction for cleanup
+                    with transaction.atomic():
+                        scan_session.refresh_from_db()  # Get fresh instance
+                        scan_session.status = 'failed'
+                        if hasattr(scan_session, 'errors'):
+                            if not isinstance(scan_session.errors, list):
+                                scan_session.errors = []
+                            scan_session.errors.append({
+                                'error': f'Scan failed: {str(e)}',
+                                'timestamp': timezone.now().isoformat()
+                            })
+                        scan_session.save()
+                except Exception as cleanup_error:
+                    logger.error(f"Failed to update scan session after error: {str(cleanup_error)}")
+            
             raise
-
 
 class ScanStatsServiceTC3:
     @staticmethod
@@ -1359,3 +1405,696 @@ class ScanStatsServiceTC3:
             'scan_status': scan_session.status,
             'scan_progress': scan_session.progress_percentage
         }
+
+
+class OpenAIServiceTC4:
+    def __init__(self):
+        self.client = OpenAI(api_key=getattr(settings, 'OPENAI_API_KEY', ''))
+    
+    def analyze_jwt_vulnerability(self, vulnerability_data):
+        prompt = f"""
+        Analyze this JWT vulnerability finding:
+        
+        API: {vulnerability_data.get('api_name')} ({vulnerability_data.get('api_method')} {vulnerability_data.get('api_url')})
+        Vulnerability Type: {vulnerability_data.get('vulnerability_type')}
+        Original Response Code: {vulnerability_data.get('original_response_code')}
+        Forged Response Code: {vulnerability_data.get('forged_response_code')}
+        Payload Changes: {vulnerability_data.get('payload_changes')}
+        
+        Original Token Header: {vulnerability_data.get('original_token_header')}
+        Original Token Payload: {vulnerability_data.get('original_token_payload')}
+        
+        Provide a detailed analysis including:
+        1. Risk assessment (1-10 scale)
+        2. Potential impact
+        3. Remediation recommendations
+        4. Additional security considerations
+        
+        Keep the response concise but comprehensive.
+        """
+        
+        try:
+            response = self.client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=500,
+                temperature=0.3
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            logger.error(f"OpenAI analysis failed: {str(e)}")
+            return f"AI analysis unavailable: {str(e)}"
+    
+    def analyze_jwt_token(self, token_data):
+        prompt = f"""
+        Analyze this JWT token for security issues:
+        
+        Header: {token_data.get('header')}
+        Payload: {token_data.get('payload')}
+        Algorithm: {token_data.get('algorithm')}
+        
+        Identify potential security risks and provide recommendations for:
+        1. Algorithm security
+        2. Payload structure
+        3. Expiration handling
+        4. General security best practices
+        
+        Be specific and actionable.
+        """
+        
+        try:
+            response = self.client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=400,
+                temperature=0.3
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            logger.error(f"OpenAI token analysis failed: {str(e)}")
+            return f"AI token analysis unavailable: {str(e)}"
+
+
+class JWTManipulationServiceTC4:
+    @staticmethod
+    def decode_token_safe(token):
+        """Decode JWT token without verification"""
+        try:
+            header = jwt.get_unverified_header(token)
+            payload = jwt.decode(token, options={"verify_signature": False})
+            return header, payload
+        except Exception as e:
+            logger.error(f"Token decode failed: {str(e)}")
+            return None, None
+    
+    @staticmethod
+    def create_none_algorithm_token(payload):
+        """Create token with 'none' algorithm"""
+        try:
+            header = {"alg": "none", "typ": "JWT"}
+            header_b64 = base64.urlsafe_b64encode(json.dumps(header).encode()).decode().rstrip('=')
+            payload_b64 = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip('=')
+            return f"{header_b64}.{payload_b64}."
+        except Exception as e:
+            logger.error(f"None algorithm token creation failed: {str(e)}")
+            return None
+    
+    @staticmethod
+    def create_weak_secret_token(payload, secret):
+        """Create token with weak secret"""
+        try:
+            return jwt.encode(payload, secret, algorithm='HS256')
+        except Exception as e:
+            logger.error(f"Weak secret token creation failed: {str(e)}")
+            return None
+    
+    @staticmethod
+    def manipulate_payload(original_payload, changes):
+        """Apply changes to JWT payload"""
+        try:
+            new_payload = original_payload.copy()
+            for key, value in changes.items():
+                new_payload[key] = value
+            return new_payload
+        except Exception as e:
+            logger.error(f"Payload manipulation failed: {str(e)}")
+            return original_payload
+
+
+class APITestServiceTC4:
+    def __init__(self, timeout=30, max_retries=3):
+        self.timeout = timeout
+        self.max_retries = max_retries
+        self.session = requests.Session()
+    
+    def make_api_call(self, api_data, token=None):
+        """Make API call with optional JWT token"""
+        try:
+            method = api_data.get('method', 'GET').upper()
+            url = api_data.get('url')
+            headers = json.loads(api_data.get('headers', '{}'))
+            body_data = json.loads(api_data.get('body', '{}'))
+            query_params = json.loads(api_data.get('query_params', '{}'))
+            
+            # Add JWT token if provided
+            if token:
+                headers['Authorization'] = f'Bearer {token}'
+            
+            # Prepare request data
+            kwargs = {
+                'headers': headers,
+                'timeout': self.timeout,
+                'params': query_params
+            }
+            
+            # Add body for methods that support it
+            if method in ['POST', 'PUT', 'PATCH'] and body_data.get('raw'):
+                try:
+                    kwargs['json'] = json.loads(body_data['raw'])
+                except json.JSONDecodeError:
+                    kwargs['data'] = body_data['raw']
+            
+            # Make request with retries
+            for attempt in range(self.max_retries):
+                try:
+                    response = self.session.request(method, url, **kwargs)
+                    return {
+                        'status_code': response.status_code,
+                        'body': response.text,
+                        'headers': dict(response.headers),
+                        'success': True
+                    }
+                except requests.RequestException as e:
+                    if attempt == self.max_retries - 1:
+                        logger.error(f"API call failed after {self.max_retries} attempts: {str(e)}")
+                        return {
+                            'status_code': None,
+                            'body': str(e),
+                            'headers': {},
+                            'success': False,
+                            'error': str(e)
+                        }
+                    time.sleep(1)  # Wait before retry
+            
+        except Exception as e:
+            logger.error(f"API test service error: {str(e)}")
+            return {
+                'status_code': None,
+                'body': str(e),
+                'headers': {},
+                'success': False,
+                'error': str(e)
+            }
+
+
+class JWTScanServiceTC4:
+    def __init__(self):
+        self.openai_service = OpenAIServiceTC4()
+        self.jwt_service = JWTManipulationServiceTC4()
+        self.api_service = APITestServiceTC4()
+        
+        # Default weak secrets to test
+        self.default_weak_secrets = [
+            'secret', 'password', '123456', 'admin', 'test', 'key',
+            'jwt', 'token', 'your-256-bit-secret', 'supersecret'
+        ]
+        
+        # Default payload manipulations for role escalation
+        self.default_role_payloads = [
+            {'role': 'admin'},
+            {'role': 'administrator'},
+            {'is_admin': True},
+            {'admin': True},
+            {'user_type': 'admin'},
+            {'permissions': ['admin']},
+            {'level': 'admin'},
+            {'privilege': 'admin'}
+        ]
+    
+    def start_scan(self, scan_id, user, config_data=None):
+        """Start JWT vulnerability scan"""
+        scan = None
+        
+        try:
+            with transaction.atomic():
+                # Create scan record
+                scan = JWTScanTC4.objects.create(
+                    scan_id=scan_id,
+                    status='in_progress',
+                    created_by=user
+                )
+                
+                # Create scan config
+                config = JWTScanConfigTC4.objects.create(
+                    scan=scan,
+                    weak_secrets=self.default_weak_secrets,
+                    role_escalation_payloads=self.default_role_payloads,
+                    **(config_data or {})
+                )
+                
+                self._log_scan_event(scan, 'info', f'Scan {scan_id} started')
+            
+            # Start scanning in background (outside of transaction)
+            # Use threading or Celery for this
+            import threading
+            thread = threading.Thread(target=self._perform_scan, args=(scan,))
+            thread.daemon = True
+            thread.start()
+            
+            return scan
+        
+        except Exception as e:
+            logger.error(f"Scan start failed: {str(e)}")
+            
+            # Cleanup failed scan outside of transaction
+            if scan:
+                try:
+                    with transaction.atomic():
+                        scan.refresh_from_db()
+                        scan.status = 'failed'
+                        scan.save()
+                        self._log_scan_event(scan, 'error', f'Scan start failed: {str(e)}')
+                except Exception as cleanup_error:
+                    logger.error(f"Failed to cleanup after scan start failure: {str(cleanup_error)}")
+            
+            raise
+
+    def _perform_scan(self, scan):
+        """Perform the actual vulnerability scan"""
+        try:
+            start_time = time.time()
+            
+            # Use separate transactions for each operation
+            with transaction.atomic():
+                # Get APIs from api_orch
+                apis = self._get_apis_for_scan(scan.scan_id)
+                scan.total_apis = len(apis)
+                scan.save()
+                
+                self._log_scan_event(scan, 'info', f'Found {len(apis)} APIs to scan')
+            
+            # Get JWT token for scan (outside transaction)
+            jwt_token = self._get_jwt_token_for_scan(scan.scan_id)
+            if not jwt_token:
+                with transaction.atomic():
+                    self._log_scan_event(scan, 'error', 'No JWT token found for scan')
+                    scan.status = 'failed'
+                    scan.save()
+                return
+            
+            # Process each API in separate transactions
+            for i, api in enumerate(apis, 1):
+                try:
+                    # Each API scan in its own transaction
+                    with transaction.atomic():
+                        self._scan_api_for_jwt_vulnerabilities(scan, api, jwt_token)
+                        scan.scanned_apis = i
+                        scan.save()
+                        
+                        self._log_scan_event(scan, 'info', f'Scanned API {api["id"]}: {api["name"]}')
+                        
+                except Exception as e:
+                    # Log error but continue with next API
+                    try:
+                        with transaction.atomic():
+                            self._log_scan_event(scan, 'error', f'Failed to scan API {api["id"]}: {str(e)}')
+                    except Exception:
+                        logger.error(f'Failed to log error for API {api["id"]}: {str(e)}')
+                    continue
+            
+            # Complete scan
+            with transaction.atomic():
+                scan.refresh_from_db()
+                scan.status = 'completed'
+                scan.completed_at = django_timezone.now()
+                scan.scan_duration = time.time() - start_time
+                scan.vulnerable_apis = JWTVulnerabilityTC4.objects.filter(
+                    scan=scan, is_vulnerable=True
+                ).values('api_id').distinct().count()
+                scan.save()
+                
+                self._log_scan_event(scan, 'info', f'Scan completed. Found {scan.vulnerable_apis} vulnerable APIs')
+            
+        except Exception as e:
+            logger.error(f"Scan execution failed: {str(e)}")
+            try:
+                with transaction.atomic():
+                    scan.refresh_from_db()
+                    scan.status = 'failed'
+                    scan.save()
+                    self._log_scan_event(scan, 'error', f'Scan failed: {str(e)}')
+            except Exception as cleanup_error:
+                logger.error(f"Failed to mark scan as failed: {str(cleanup_error)}")
+
+    def _get_apis_for_scan(self, scan_id):
+        """Get APIs from api_orch_postmanapi table"""
+        from django.db import connection
+        
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                SELECT "id", "name", "method", "url", "headers", "body", "authorization", 
+                       "query_params", "original_url", "original_headers", "original_body"
+                FROM api_orch_postmanapi 
+                WHERE "scan_id" = %s
+            """, [scan_id])
+            
+            columns = [col[0] for col in cursor.description]
+            return [dict(zip(columns, row)) for row in cursor.fetchall()]
+    
+    def _get_jwt_token_for_scan(self, scan_id):
+        """Get JWT token from api_orch_scantokens table"""
+        from django.db import connection
+        
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                SELECT "access_token" 
+                FROM api_orch_scantokens 
+                WHERE "scan_id" = %s 
+                ORDER BY created_at DESC 
+                LIMIT 1
+            """, [scan_id])
+            
+            row = cursor.fetchone()
+            return row[0] if row else None
+    
+    def _scan_api_for_jwt_vulnerabilities(self, scan, api_data, original_token):
+        """Test API for various JWT vulnerabilities"""
+        config = scan.config
+        
+        # Analyze original token
+        token_analysis = self._analyze_token(scan, api_data['id'], original_token)
+        
+        # Test original API call
+        original_response = self.api_service.make_api_call(api_data, original_token)
+        
+        if not original_response['success']:
+            self._log_scan_event(scan, 'warning', f'Failed to call API {api_data["id"]} with original token')
+            return
+        
+        # Test different vulnerability types
+        if config.test_none_algorithm:
+            self._test_none_algorithm(scan, api_data, original_token, original_response, token_analysis)
+        
+        if config.test_weak_secrets:
+            self._test_weak_secrets(scan, api_data, original_token, original_response, token_analysis)
+        
+        if config.test_payload_manipulation:
+            self._test_payload_manipulation(scan, api_data, original_token, original_response, token_analysis)
+        
+        if config.test_malformed_tokens:
+            self._test_malformed_tokens(scan, api_data, original_response, token_analysis)
+    
+    def _analyze_token(self, scan, api_id, token):
+        """Analyze JWT token structure and create analysis record"""
+        header, payload = self.jwt_service.decode_token_safe(token)
+        
+        if not header or not payload:
+            return None
+        
+        # Get AI analysis
+        ai_analysis = self.openai_service.analyze_jwt_token({
+            'header': header,
+            'payload': payload,
+            'algorithm': header.get('alg')
+        })
+        
+        analysis = JWTTokenAnalysisTC4.objects.create(
+            scan=scan,
+            api_id=api_id,
+            original_token=token,
+            token_header=header,
+            token_payload=payload,
+            algorithm=header.get('alg'),
+            issuer=payload.get('iss'),
+            expiry=datetime.fromtimestamp(payload.get('exp'), timezone.utc) if payload.get('exp') else None,
+            ai_risk_assessment=ai_analysis
+        )
+        
+        return analysis
+    
+    def _test_none_algorithm(self, scan, api_data, original_token, original_response, token_analysis):
+        """Test none algorithm vulnerability"""
+        try:
+            header, payload = self.jwt_service.decode_token_safe(original_token)
+            if not payload:
+                return
+            
+            # Create none algorithm token
+            none_token = self.jwt_service.create_none_algorithm_token(payload)
+            if not none_token:
+                return
+            
+            # Test API with none algorithm token
+            forged_response = self.api_service.make_api_call(api_data, none_token)
+            
+            # Determine if vulnerable
+            is_vulnerable = (
+                forged_response['success'] and 
+                forged_response['status_code'] == original_response['status_code']
+            )
+            
+            # Get AI analysis
+            ai_analysis = self._get_vulnerability_ai_analysis({
+                'api_name': api_data['name'],
+                'api_method': api_data['method'],
+                'api_url': api_data['url'],
+                'vulnerability_type': 'none_algorithm',
+                'original_response_code': original_response['status_code'],
+                'forged_response_code': forged_response['status_code'],
+                'payload_changes': {'algorithm': 'none'},
+                'original_token_header': token_analysis.token_header if token_analysis else {},
+                'original_token_payload': token_analysis.token_payload if token_analysis else {}
+            })
+            
+            # Create vulnerability record
+            JWTVulnerabilityTC4.objects.create(
+                scan=scan,
+                api_id=api_data['id'],
+                api_name=api_data['name'],
+                api_url=api_data['url'],
+                api_method=api_data['method'],
+                vulnerability_type='none_algorithm',
+                severity='critical' if is_vulnerable else 'low',
+                is_vulnerable=is_vulnerable,
+                original_token=original_token,
+                forged_token=none_token,
+                original_response_code=original_response['status_code'],
+                forged_response_code=forged_response['status_code'],
+                original_response_body=original_response['body'][:1000],  # Limit size
+                forged_response_body=forged_response['body'][:1000],
+                payload_changes={'algorithm': 'none'},
+                exploitation_details='Modified JWT algorithm to "none" to bypass signature verification',
+                ai_analysis=ai_analysis
+            )
+            
+        except Exception as e:
+            self._log_scan_event(scan, 'error', f'None algorithm test failed for API {api_data["id"]}: {str(e)}')
+    
+    def _test_weak_secrets(self, scan, api_data, original_token, original_response, token_analysis):
+        """Test weak secret vulnerability"""
+        try:
+            header, payload = self.jwt_service.decode_token_safe(original_token)
+            if not payload or header.get('alg') != 'HS256':
+                return
+            
+            config = scan.config
+            for secret in config.weak_secrets:
+                try:
+                    # Try to create token with weak secret
+                    weak_token = self.jwt_service.create_weak_secret_token(payload, secret)
+                    if not weak_token:
+                        continue
+                    
+                    # Test API with weak secret token
+                    forged_response = self.api_service.make_api_call(api_data, weak_token)
+                    
+                    # Check if vulnerable
+                    is_vulnerable = (
+                        forged_response['success'] and 
+                        forged_response['status_code'] == original_response['status_code']
+                    )
+                    
+                    if is_vulnerable:
+                        # Get AI analysis
+                        ai_analysis = self._get_vulnerability_ai_analysis({
+                            'api_name': api_data['name'],
+                            'api_method': api_data['method'],
+                            'api_url': api_data['url'],
+                            'vulnerability_type': 'weak_secret',
+                            'original_response_code': original_response['status_code'],
+                            'forged_response_code': forged_response['status_code'],
+                            'payload_changes': {'secret': secret},
+                            'original_token_header': token_analysis.token_header if token_analysis else {},
+                            'original_token_payload': token_analysis.token_payload if token_analysis else {}
+                        })
+                        
+                        # Create vulnerability record
+                        JWTVulnerabilityTC4.objects.create(
+                            scan=scan,
+                            api_id=api_data['id'],
+                            api_name=api_data['name'],
+                            api_url=api_data['url'],
+                            api_method=api_data['method'],
+                            vulnerability_type='weak_secret',
+                            severity='high',
+                            is_vulnerable=True,
+                            original_token=original_token,
+                            forged_token=weak_token,
+                            original_response_code=original_response['status_code'],
+                            forged_response_code=forged_response['status_code'],
+                            original_response_body=original_response['body'][:1000],
+                            forged_response_body=forged_response['body'][:1000],
+                            payload_changes={'weak_secret_used': secret},
+                            exploitation_details=f'JWT signature was successfully forged using weak secret: {secret}',
+                            ai_analysis=ai_analysis
+                        )
+                        break  # Found vulnerability, no need to test more secrets
+                        
+                except Exception as e:
+                    continue
+                    
+        except Exception as e:
+            self._log_scan_event(scan, 'error', f'Weak secret test failed for API {api_data["id"]}: {str(e)}')
+    
+    def _test_payload_manipulation(self, scan, api_data, original_token, original_response, token_analysis):
+        """Test payload manipulation vulnerability"""
+        try:
+            header, payload = self.jwt_service.decode_token_safe(original_token)
+            if not payload:
+                return
+            
+            config = scan.config
+            
+            # Test role escalation payloads
+            for role_payload in config.role_escalation_payloads:
+                try:
+                    # Manipulate payload
+                    new_payload = self.jwt_service.manipulate_payload(payload, role_payload)
+                    
+                    # Create forged token (try multiple methods)
+                    forged_tokens = []
+                    
+                    # Try none algorithm
+                    none_token = self.jwt_service.create_none_algorithm_token(new_payload)
+                    if none_token:
+                        forged_tokens.append(('none_algorithm', none_token))
+                    
+                    # Try with weak secrets
+                    for secret in config.weak_secrets[:3]:  # Test only first 3 to save time
+                        weak_token = self.jwt_service.create_weak_secret_token(new_payload, secret)
+                        if weak_token:
+                            forged_tokens.append(('weak_secret', weak_token))
+                            break  # Use first working secret
+                    
+                    # Test each forged token
+                    for token_type, forged_token in forged_tokens:
+                        forged_response = self.api_service.make_api_call(api_data, forged_token)
+                        
+                        # Check if vulnerable
+                        is_vulnerable = (
+                            forged_response['success'] and 
+                            forged_response['status_code'] == original_response['status_code']
+                        )
+                        
+                        if is_vulnerable:
+                            # Get AI analysis
+                            ai_analysis = self._get_vulnerability_ai_analysis({
+                                'api_name': api_data['name'],
+                                'api_method': api_data['method'],
+                                'api_url': api_data['url'],
+                                'vulnerability_type': 'payload_manipulation',
+                                'original_response_code': original_response['status_code'],
+                                'forged_response_code': forged_response['status_code'],
+                                'payload_changes': role_payload,
+                                'original_token_header': token_analysis.token_header if token_analysis else {},
+                                'original_token_payload': token_analysis.token_payload if token_analysis else {}
+                            })
+                            
+                            # Create vulnerability record
+                            JWTVulnerabilityTC4.objects.create(
+                                scan=scan,
+                                api_id=api_data['id'],
+                                api_name=api_data['name'],
+                                api_url=api_data['url'],
+                                api_method=api_data['method'],
+                                vulnerability_type='payload_manipulation',
+                                severity='critical',
+                                is_vulnerable=True,
+                                original_token=original_token,
+                                forged_token=forged_token,
+                                original_response_code=original_response['status_code'],
+                                forged_response_code=forged_response['status_code'],
+                                original_response_body=original_response['body'][:1000],
+                                forged_response_body=forged_response['body'][:1000],
+                                payload_changes=role_payload,
+                                exploitation_details=f'Successfully performed role escalation by modifying payload: {role_payload}',
+                                ai_analysis=ai_analysis
+                            )
+                            return  # Found vulnerability, stop testing
+                            
+                except Exception as e:
+                    continue
+                    
+        except Exception as e:
+            self._log_scan_event(scan, 'error', f'Payload manipulation test failed for API {api_data["id"]}: {str(e)}')
+    
+    def _test_malformed_tokens(self, scan, api_data, original_response, token_analysis):
+        """Test malformed token handling"""
+        try:
+            malformed_tokens = [
+                '',  # Empty token
+                'invalid.token.here',  # Invalid format
+                'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.',  # Missing payload and signature
+                'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.',  # Missing signature
+                'null',  # Null string
+                'undefined',  # Undefined string
+            ]
+            
+            for malformed_token in malformed_tokens:
+                try:
+                    forged_response = self.api_service.make_api_call(api_data, malformed_token)
+                    
+                    # Check if API accepts malformed token (should reject)
+                    is_vulnerable = (
+                        forged_response['success'] and 
+                        forged_response['status_code'] not in [401, 403]
+                    )
+                    
+                    if is_vulnerable:
+                        # Get AI analysis
+                        ai_analysis = self._get_vulnerability_ai_analysis({
+                            'api_name': api_data['name'],
+                            'api_method': api_data['method'],
+                            'api_url': api_data['url'],
+                            'vulnerability_type': 'malformed_token_accepted',
+                            'original_response_code': original_response['status_code'],
+                            'forged_response_code': forged_response['status_code'],
+                            'payload_changes': {'token_format': 'malformed'},
+                            'original_token_header': {},
+                            'original_token_payload': {}
+                        })
+                        
+                        # Create vulnerability record
+                        JWTVulnerabilityTC4.objects.create(
+                            scan=scan,
+                            api_id=api_data['id'],
+                            api_name=api_data['name'],
+                            api_url=api_data['url'],
+                            api_method=api_data['method'],
+                            vulnerability_type='malformed_token_accepted',
+                            severity='medium',
+                            is_vulnerable=True,
+                            original_token='N/A',
+                            forged_token=malformed_token,
+                            original_response_code=original_response['status_code'],
+                            forged_response_code=forged_response['status_code'],
+                            original_response_body=original_response['body'][:1000],
+                            forged_response_body=forged_response['body'][:1000],
+                            payload_changes={'malformed_token': malformed_token},
+                            exploitation_details=f'API accepted malformed token: {malformed_token}',
+                            ai_analysis=ai_analysis
+                        )
+                        
+                except Exception as e:
+                    continue
+                    
+        except Exception as e:
+            self._log_scan_event(scan, 'error', f'Malformed token test failed for API {api_data["id"]}: {str(e)}')
+    
+    def _get_vulnerability_ai_analysis(self, vulnerability_data):
+        """Get AI analysis for vulnerability"""
+        try:
+            return self.openai_service.analyze_jwt_vulnerability(vulnerability_data)
+        except Exception as e:
+            logger.error(f"AI vulnerability analysis failed: {str(e)}")
+            return f"AI analysis unavailable: {str(e)}"
+    
+    def _log_scan_event(self, scan, level, message, api_id=None, additional_data=None):
+        """Log scan event"""
+        JWTScanLogTC4.objects.create(
+            scan=scan,
+            level=level,
+            message=message,
+            api_id=api_id,
+            additional_data=additional_data or {}
+        )
