@@ -1,32 +1,45 @@
-from django.db import models
-from django.utils import timezone
-from django.db.models import Count, Q, Avg
-from rest_framework import status
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework_simplejwt.authentication import JWTAuthentication
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.pagination import PageNumberPagination
-from django.shortcuts import get_object_or_404
-from datetime import timedelta
+import logging
 import threading
-from .models import CORSScanResultTC1, CORSScanSessionTC1, ScanTC2, VulnerabilityTC2, ScanHistoryTC2, ScanMetricsTC2, ScanTC3, VulnerabilityTC3, ScanHistoryTC3, ScanStatsTC3
+from datetime import timedelta
+
+from django.db import models, connection
+from django.db.models import Count, Q, Avg
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
+
+from rest_framework import status, generics, filters
+from rest_framework.authentication import BaseAuthentication
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from rest_framework.pagination import PageNumberPagination
+from rest_framework_simplejwt.authentication import JWTAuthentication
+
+from django_filters.rest_framework import DjangoFilterBackend
+
+from .models import (
+    CORSScanResultTC1, CORSScanSessionTC1,
+    ScanTC2, VulnerabilityTC2, ScanHistoryTC2, ScanMetricsTC2,
+    ScanTC3, VulnerabilityTC3, ScanHistoryTC3, ScanStatsTC3
+)
+
 from .serializers import (
     CORSScanRequestTC1Serializer, CORSScanResultTC1Serializer,
     CORSScanSessionTC1Serializer, VulnerabilitySummaryTC1Serializer,
-    ScanStatsTC1Serializer, ScanCreateSerializerTC2, 
-    ScanSerializerTC2, ScanStatusSerializerTC2,
-    ScanStatsSerializerTC2, VulnerabilitySerializerTC2, 
-    VulnerabilitySummarySerializerTC2, ScanResultsSerializerTC2, 
-    VulnerabilityFilterSerializerTC2, ScanHistorySerializerTC2,
-    ScanRequestSerializerTC3, ScanSerializerTC3, 
-    ScanSummarySerializerTC3, VulnerabilitySerializerTC3, 
-    VulnerabilitySummarySerializerTC3, ScanFilterSerializerTC3, 
+    ScanStatsTC1Serializer, ScanCreateSerializerTC2,
+    ScanSerializerTC2, ScanStatusSerializerTC2, ScanStatsSerializerTC2,
+    VulnerabilitySerializerTC2, VulnerabilitySummarySerializerTC2,
+    ScanResultsSerializerTC2, VulnerabilityFilterSerializerTC2,
+    ScanHistorySerializerTC2, ScanRequestSerializerTC3, ScanSerializerTC3,
+    ScanSummarySerializerTC3, VulnerabilitySerializerTC3,
+    VulnerabilitySummarySerializerTC3, ScanFilterSerializerTC3,
     ScanHistorySerializerTC3, ScanStatsSerializerTC3
 )
-from .services import CORSScannerServiceTC1, TLSScanServiceTC2, ScanAnalyticsServiceTC2, VulnerabilityScannerServiceTC3
-from django.db import connection
-import logging
+
+from .services import (
+    CORSScannerServiceTC1, TLSScanServiceTC2, ScanAnalyticsServiceTC2,
+    VulnerabilityScannerServiceTC3
+)
 
 
 logger = logging.getLogger(__name__)

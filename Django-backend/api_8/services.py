@@ -3,6 +3,7 @@ import json
 import time
 from typing import Dict, List, Any, Optional, Tuple
 from django.utils import timezone
+from urllib.parse import urljoin
 from django.db import transaction, connection
 from .models import CORSScanResultTC1, CORSScanSessionTC1, ScanTC2, VulnerabilityTC2, ScanHistoryTC2, ScanMetricsTC2, ScanTC3, VulnerabilityTC3, ScanHistoryTC3, ScanStatsTC3
 import subprocess
@@ -13,6 +14,7 @@ from .utils.ai_analyzer_tc2 import AIAnalyzerTC2
 import re
 from django.conf import settings
 import openai
+import uuid
 import logging
 
 logger = logging.getLogger(__name__)
@@ -706,20 +708,6 @@ class ScanAnalyticsServiceTC2:
             'most_common_vulnerabilities': list(common_vulns),
             'vulnerability_trends': trends
         }
-
-import json
-import re
-import time
-import requests
-import logging
-from typing import Dict, List, Any, Optional, Tuple
-from django.db import connection
-from django.utils import timezone
-from django.conf import settings
-import openai
-from .models import ScanTC3, VulnerabilityTC3, ScanHistoryTC3, ScanStatsTC3
-
-logger = logging.getLogger(__name__)
 
 class VulnerabilityScannerServiceTC3:
     def __init__(self):

@@ -1,4 +1,5 @@
-from django.urls import path
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
 from .views import (
     CORSScanStartTC1View,
     CORSScanResultsTC1View,

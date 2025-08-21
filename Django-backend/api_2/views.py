@@ -8,7 +8,7 @@ from django.utils import timezone
 from django.db.models import Q, Count
 from django.core.paginator import Paginator
 from datetime import timedelta
-from .models import ScanResultTC1, ScanSessionTC1, VulnerabilitySummaryTC1, ScanResultTC2, ScanSummaryTC2, TestCredentialTC2, ScanResultTC3, ScanSessionTC3, VulnerabilityTemplateTC3, JWTScanTC4, JWTVulnerabilityTC4, JWTScanLogTC4, JWTScanConfigTC4, JWTTokenAnalysisTC4
+from .models import ScanResultTC1, ScanSessionTC1, VulnerabilitySummaryTC1, ScanResultTC2, ScanSummaryTC2, TestCredentialTC2, ScanResultTC3, ScanSessionTC3, VulnerabilityTemplateTC3, JWTScanTC4, JWTVulnerabilityTC4, JWTScanLogTC4, JWTScanConfigTC4, JWTTokenAnalysisTC4, ScanTC5, VulnerabilityTypeTC5, ScanResultTC5, ScanLogTC5, ScanConfigurationTC5
 from .serializers import (
     ScanInitiateSerializerTC1, ScanResultSerializerTC1, ScanSessionSerializerTC1,
     VulnerabilitySummarySerializerTC1, ScanStatsSerializerTC1, ScanHistorySerializerTC1,
@@ -20,9 +20,12 @@ from .serializers import (
     VulnerabilitySummarySerializerTC3, ScanHistorySerializerTC3, VulnerabilityTemplateSerializerTC3,
     JWTScanCreateSerializerTC4, JWTScanSerializerTC4, JWTScanDetailSerializerTC4,
     JWTVulnerabilitySerializerTC4, JWTVulnerabilitySummarySerializerTC4, JWTScanStatsSerializerTC4, 
-    JWTVulnerabilityFilterSerializerTC4, JWTScanLogSerializerTC4, JWTTokenAnalysisSerializerTC4
+    JWTVulnerabilityFilterSerializerTC4, JWTScanLogSerializerTC4, JWTTokenAnalysisSerializerTC4,
+    ScanInitiateTC5Serializer, ScanTC5Serializer, ScanDetailTC5Serializer,
+    ScanResultTC5Serializer, ScanStatsTC5Serializer, VulnerabilitySummaryTC5Serializer,
+    ScanFilterTC5Serializer, VulnerabilityTypeTC5Serializer, ScanConfigurationTC5Serializer
 )
-from .services import APISecurityScannerTC1, APIOrchDataServiceTC1, CredentialStuffingServiceTC2, ScanAnalyticsServiceTC2, VulnerabilityScannerServiceTC3, ScanStatsServiceTC3, JWTScanServiceTC4
+from .services import APISecurityScannerTC1, APIOrchDataServiceTC1, CredentialStuffingServiceTC2, ScanAnalyticsServiceTC2, VulnerabilityScannerServiceTC3, ScanStatsServiceTC3, JWTScanServiceTC4, ScanServiceTC5
 from .tasks import run_security_scan_async
 import threading
 import logging
@@ -1626,3 +1629,449 @@ class JWTScannerAutoStatusAPIViewTC4(APIView):
             return Response({
                 'error': f'Failed to control auto-service: {str(e)}'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class StandardResultsSetPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+
+class ScanInitiateTC5View(APIView):
+    """Initiate a new security scan"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        serializer = ScanInitiateTC5Serializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        scan_id = serializer.validated_data['scan_id']
+        configuration_id = serializer.validated_data.get('configuration_id')
+        
+        try:
+            scan_service = ScanServiceTC5()
+            scan = scan_service.initiate_scan(scan_id, configuration_id)
+            
+            return Response({
+                'message': f'Scan {scan_id} initiated successfully',
+                'scan': ScanTC5Serializer(scan).data
+            }, status=status.HTTP_201_CREATED)
+            
+        except ValueError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({'error': f'Failed to initiate scan: {str(e)}'}, 
+                          status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class ScanStatusTC5View(APIView):
+    """Get status of a specific scan"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, scan_id):
+        try:
+            scan_service = ScanServiceTC5()
+            scan_status = scan_service.get_scan_status(scan_id)
+            
+            if 'error' in scan_status:
+                return Response(scan_status, status=status.HTTP_404_NOT_FOUND)
+            
+            return Response(scan_status, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({'error': f'Failed to get scan status: {str(e)}'}, 
+                          status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class ScanListTC5View(APIView):
+    """List all scans with pagination"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    pagination_class = StandardResultsSetPagination
+    
+    def get(self, request):
+        try:
+            scans = ScanTC5.objects.all().order_by('-created_at')
+            
+            # Apply pagination
+            paginator = self.pagination_class()
+            page = paginator.paginate_queryset(scans, request)
+            
+            if page is not None:
+                serializer = ScanTC5Serializer(page, many=True)
+                return paginator.get_paginated_response(serializer.data)
+            
+            serializer = ScanTC5Serializer(scans, many=True)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({'error': f'Failed to retrieve scans: {str(e)}'}, 
+                          status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class ScanDetailTC5View(APIView):
+    """Get detailed information about a specific scan"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, scan_id):
+        try:
+            scan = ScanTC5.objects.get(scan_id=scan_id)
+            serializer = ScanDetailTC5Serializer(scan)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+            
+        except ScanTC5.DoesNotExist:
+            return Response({'error': f'Scan {scan_id} not found'}, 
+                          status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({'error': f'Failed to retrieve scan details: {str(e)}'}, 
+                          status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class ScanResultsTC5View(APIView):
+    """Get scan results with filtering"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    pagination_class = StandardResultsSetPagination
+    
+    def get(self, request):
+        try:
+            # Apply filters
+            filter_serializer = ScanFilterTC5Serializer(data=request.query_params)
+            if not filter_serializer.is_valid():
+                return Response(filter_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            
+            filters = filter_serializer.validated_data
+            queryset = ScanResultTC5.objects.select_related('vulnerability_type', 'scan')
+            
+            # Apply filters
+            if filters.get('scan_id'):
+                queryset = queryset.filter(scan__scan_id=filters['scan_id'])
+            
+            if filters.get('status'):
+                queryset = queryset.filter(status=filters['status'])
+            
+            if filters.get('vulnerability_type'):
+                queryset = queryset.filter(vulnerability_type_id=filters['vulnerability_type'])
+            
+            if filters.get('severity'):
+                queryset = queryset.filter(vulnerability_type__severity=filters['severity'])
+            
+            if filters.get('confidence_min'):
+                queryset = queryset.filter(confidence__gte=filters['confidence_min'])
+            
+            if filters.get('risk_score_min'):
+                queryset = queryset.filter(risk_score__gte=filters['risk_score_min'])
+            
+            if filters.get('date_from'):
+                queryset = queryset.filter(created_at__gte=filters['date_from'])
+            
+            if filters.get('date_to'):
+                queryset = queryset.filter(created_at__lte=filters['date_to'])
+            
+            if filters.get('api_method'):
+                queryset = queryset.filter(api_method=filters['api_method'])
+            
+            if filters.get('false_positive') is not None:
+                queryset = queryset.filter(false_positive=filters['false_positive'])
+            
+            if filters.get('verified') is not None:
+                queryset = queryset.filter(verified=filters['verified'])
+            
+            # Order by risk score and creation date
+            queryset = queryset.order_by('-risk_score', '-created_at')
+            
+            # Apply pagination
+            paginator = self.pagination_class()
+            page = paginator.paginate_queryset(queryset, request)
+            
+            if page is not None:
+                serializer = ScanResultTC5Serializer(page, many=True)
+                return paginator.get_paginated_response(serializer.data)
+            
+            serializer = ScanResultTC5Serializer(queryset, many=True)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({'error': f'Failed to retrieve scan results: {str(e)}'}, 
+                          status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class ScanStatsTC5View(APIView):
+    """Get overall scanning statistics"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        try:
+            scan_service = ScanServiceTC5()
+            stats = scan_service.get_scan_stats()
+            
+            serializer = ScanStatsTC5Serializer(stats)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({'error': f'Failed to retrieve scan statistics: {str(e)}'}, 
+                          status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class VulnerabilitySummaryTC5View(APIView):
+    """Get vulnerability summary grouped by type"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        try:
+            # Get vulnerability summary data directly from the database
+            from django.db.models import Count, Avg
+            
+            # Get summary of vulnerabilities by type
+            vulnerability_summary = VulnerabilityTypeTC5.objects.annotate(
+                total_vulnerabilities=Count('scanresulttc5', filter=Q(scanresulttc5__status='vulnerable')),
+                total_scans=Count('scanresulttc5', distinct=True),
+                avg_risk_score=Avg('scanresulttc5__risk_score', filter=Q(scanresulttc5__status='vulnerable')),
+                high_risk_count=Count('scanresulttc5', filter=Q(
+                    scanresulttc5__status='vulnerable',
+                    scanresulttc5__risk_score__gte=7.0
+                )),
+                medium_risk_count=Count('scanresulttc5', filter=Q(
+                    scanresulttc5__status='vulnerable',
+                    scanresulttc5__risk_score__gte=4.0,
+                    scanresulttc5__risk_score__lt=7.0
+                )),
+                low_risk_count=Count('scanresulttc5', filter=Q(
+                    scanresulttc5__status='vulnerable',
+                    scanresulttc5__risk_score__lt=4.0
+                )),
+                false_positive_count=Count('scanresulttc5', filter=Q(
+                    scanresulttc5__false_positive=True
+                )),
+                verified_count=Count('scanresulttc5', filter=Q(
+                    scanresulttc5__verified=True
+                ))
+            ).filter(total_vulnerabilities__gt=0).order_by('-total_vulnerabilities')
+            
+            # Prepare the response data
+            summary_data = []
+            for vuln_type in vulnerability_summary:
+                summary_data.append({
+                    'vulnerability_type': {
+                        'id': vuln_type.id,
+                        'name': vuln_type.name,
+                        'description': vuln_type.description,
+                        'severity': vuln_type.severity,
+                        'category': vuln_type.category,
+                        'remediation': vuln_type.remediation,
+                        'created_at': vuln_type.created_at,
+                        'updated_at': vuln_type.updated_at
+                    },
+                    'total_vulnerabilities': vuln_type.total_vulnerabilities or 0,
+                    'total_scans': vuln_type.total_scans or 0,
+                    'avg_risk_score': round(vuln_type.avg_risk_score or 0, 2),
+                    'risk_distribution': {
+                        'high': vuln_type.high_risk_count or 0,
+                        'medium': vuln_type.medium_risk_count or 0,
+                        'low': vuln_type.low_risk_count or 0
+                    },
+                    'false_positive_count': vuln_type.false_positive_count or 0,
+                    'verified_count': vuln_type.verified_count or 0
+                })
+            
+            # Add overall statistics
+            total_vulnerabilities = sum(item['total_vulnerabilities'] for item in summary_data)
+            total_unique_types = len(summary_data)
+            
+            response_data = {
+                'summary': summary_data,
+                'statistics': {
+                    'total_vulnerabilities': total_vulnerabilities,
+                    'total_unique_types': total_unique_types,
+                    'most_common_type': summary_data[0]['vulnerability_type']['name'] if summary_data else None,
+                    'generated_at': timezone.now().isoformat()
+                }
+            }
+            
+            return Response(response_data, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Error in VulnerabilitySummaryTC5View: {str(e)}")
+            return Response({'error': f'Failed to retrieve vulnerability summary: {str(e)}'}, 
+                          status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                          
+class ScanHistoryTC5View(APIView):
+    """Get scan history with trend analysis"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        try:
+            # Get query parameters
+            days = int(request.query_params.get('days', 30))
+            scan_id = request.query_params.get('scan_id')
+            
+            # Calculate date range
+            end_date = timezone.now()
+            start_date = end_date - timedelta(days=days)
+            
+            # Base queryset
+            queryset = ScanTC5.objects.filter(
+                created_at__gte=start_date,
+                created_at__lte=end_date
+            )
+            
+            if scan_id:
+                queryset = queryset.filter(scan_id=scan_id)
+            
+            # Get scans with aggregated data
+            scans = queryset.order_by('-created_at')
+            
+            # Prepare trend data
+            from django.db.models import Count
+            from django.db.models.functions import TruncDate
+            
+            daily_stats = queryset.annotate(
+                date=TruncDate('created_at')
+            ).values('date').annotate(
+                total_scans=Count('id'),
+                completed_scans=Count('id', filter=Q(status='completed')),
+                failed_scans=Count('id', filter=Q(status='failed'))
+            ).order_by('date')
+            
+            # Get vulnerability trends
+            vuln_trends = ScanResultTC5.objects.filter(
+                scan__in=queryset,
+                status='vulnerable'
+            ).annotate(
+                date=TruncDate('created_at')
+            ).values('date').annotate(
+                vulnerabilities=Count('id')
+            ).order_by('date')
+            
+            serializer = ScanTC5Serializer(scans, many=True)
+            
+            return Response({
+                'scans': serializer.data,
+                'trends': {
+                    'daily_stats': list(daily_stats),
+                    'vulnerability_trends': list(vuln_trends)
+                },
+                'period': {
+                    'start_date': start_date,
+                    'end_date': end_date,
+                    'days': days
+                }
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({'error': f'Failed to retrieve scan history: {str(e)}'}, 
+                          status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class VulnerabilityTypesTC5View(APIView):
+    """Manage vulnerability types"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        """List all vulnerability types"""
+        try:
+            vuln_types = VulnerabilityTypeTC5.objects.all().order_by('severity', 'name')
+            serializer = VulnerabilityTypeTC5Serializer(vuln_types, many=True)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({'error': f'Failed to retrieve vulnerability types: {str(e)}'}, 
+                          status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def post(self, request):
+        """Create a new vulnerability type"""
+        try:
+            serializer = VulnerabilityTypeTC5Serializer(data=request.data)
+            if serializer.is_valid():
+                serializer.save()
+                return Response(serializer.data, status=status.HTTP_201_CREATED)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            
+        except Exception as e:
+            return Response({'error': f'Failed to create vulnerability type: {str(e)}'}, 
+                          status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class ScanConfigurationTC5View(APIView):
+    """Manage scan configurations"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        """List all scan configurations"""
+        try:
+            configs = ScanConfigurationTC5.objects.all().order_by('-is_default', 'name')
+            serializer = ScanConfigurationTC5Serializer(configs, many=True)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({'error': f'Failed to retrieve scan configurations: {str(e)}'}, 
+                          status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def post(self, request):
+        """Create a new scan configuration"""
+        try:
+            serializer = ScanConfigurationTC5Serializer(data=request.data)
+            if serializer.is_valid():
+                # Ensure only one default configuration
+                if serializer.validated_data.get('is_default'):
+                    ScanConfigurationTC5.objects.filter(is_default=True).update(is_default=False)
+                
+                serializer.save()
+                return Response(serializer.data, status=status.HTTP_201_CREATED)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            
+        except Exception as e:
+            return Response({'error': f'Failed to create scan configuration: {str(e)}'}, 
+                          status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class ScanResultDetailTC5View(APIView):
+    """Get detailed information about a specific scan result"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, result_id):
+        try:
+            result = ScanResultTC5.objects.select_related('vulnerability_type', 'scan').get(id=result_id)
+            serializer = ScanResultTC5Serializer(result)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+            
+        except ScanResultTC5.DoesNotExist:
+            return Response({'error': f'Scan result {result_id} not found'}, 
+                          status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({'error': f'Failed to retrieve scan result: {str(e)}'}, 
+                          status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def patch(self, request, result_id):
+        """Update scan result (mark as false positive, verified, etc.)"""
+        try:
+            result = ScanResultTC5.objects.get(id=result_id)
+            
+            # Only allow updating certain fields
+            allowed_fields = ['false_positive', 'verified', 'remediation_suggestion']
+            update_data = {k: v for k, v in request.data.items() if k in allowed_fields}
+            
+            for field, value in update_data.items():
+                setattr(result, field, value)
+            
+            result.save()
+            
+            serializer = ScanResultTC5Serializer(result)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+            
+        except ScanResultTC5.DoesNotExist:
+            return Response({'error': f'Scan result {result_id} not found'}, 
+                          status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({'error': f'Failed to update scan result: {str(e)}'}, 
+                          status=status.HTTP_500_INTERNAL_SERVER_ERROR)

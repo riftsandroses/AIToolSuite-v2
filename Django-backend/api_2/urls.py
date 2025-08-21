@@ -44,7 +44,18 @@ from .views import (
     JWTScanLogsAPIViewTC4,
     JWTTokenAnalysisListAPIViewTC4,
     JWTScanDeleteAPIViewTC4,
-    JWTScannerAutoStatusAPIViewTC4
+    JWTScannerAutoStatusAPIViewTC4,
+    ScanInitiateTC5View,
+    ScanStatusTC5View,
+    ScanListTC5View,
+    ScanDetailTC5View,
+    ScanResultsTC5View,
+    ScanStatsTC5View,
+    VulnerabilitySummaryTC5View,
+    ScanHistoryTC5View,
+    VulnerabilityTypesTC5View,
+    ScanConfigurationTC5View,
+    ScanResultDetailTC5View,
 )
 
 app_name = 'api_2'
@@ -104,4 +115,17 @@ urlpatterns = [
     path('jwt-scans-tc4/<int:scan_id>/logs/', JWTScanLogsAPIViewTC4.as_view(), name='jwt-scan-logs'),
     path('jwt-scans-tc4/<int:scan_id>/token-analyses/', JWTTokenAnalysisListAPIViewTC4.as_view(), name='jwt-token-analysis-list'),
     path('jwt-scanner-tc4/auto-status/', JWTScannerAutoStatusAPIViewTC4.as_view(), name='jwt-scanner-auto-status'),
+
+    # TC-5 Insecure Password Reset Flow
+    path('scans-tc5/initiate/', ScanInitiateTC5View.as_view(), name='scan-initiate'),
+    path('scans-tc5/', ScanListTC5View.as_view(), name='scan-list'),
+    path('scans-tc5/<int:scan_id>/', ScanDetailTC5View.as_view(), name='scan-detail'),
+    path('scans-tc5/<int:scan_id>/status/', ScanStatusTC5View.as_view(), name='scan-status'),
+    path('results-tc5/', ScanResultsTC5View.as_view(), name='scan-results'),
+    path('results-tc5/<uuid:result_id>/', ScanResultDetailTC5View.as_view(), name='scan-result-detail'),
+    path('stats-tc5/', ScanStatsTC5View.as_view(), name='scan-stats'),
+    path('vulnerability-summary-tc5/', VulnerabilitySummaryTC5View.as_view(), name='vulnerability-summary'),
+    path('history-tc5/', ScanHistoryTC5View.as_view(), name='scan-history'),
+    path('vulnerability-types-tc5/', VulnerabilityTypesTC5View.as_view(), name='vulnerability-types'),
+    path('configurations-tc5/', ScanConfigurationTC5View.as_view(), name='scan-configurations'),
 ]

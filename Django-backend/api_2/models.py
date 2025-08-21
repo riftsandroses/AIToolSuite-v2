@@ -1,6 +1,8 @@
 from django.db import models
+from django.db.models import JSONField
 from django.contrib.auth.models import User
 import json
+import uuid
 
 class ScanResultTC1(models.Model):
     VULNERABILITY_TYPES = [
@@ -509,3 +511,159 @@ class JWTTokenAnalysisTC4(models.Model):
     class Meta:
         db_table = 'jwt_token_analysis_tc4'
         ordering = ['-created_at']
+
+
+class ScanTC5(models.Model):
+    SCAN_STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('running', 'Running'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+        ('cancelled', 'Cancelled'),
+    ]
+    
+    id = models.AutoField(primary_key=True)
+    scan_id = models.IntegerField(unique=True)
+    status = models.CharField(max_length=20, choices=SCAN_STATUS_CHOICES, default='pending')
+    started_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    total_apis = models.IntegerField(default=0)
+    scanned_apis = models.IntegerField(default=0)
+    vulnerabilities_found = models.IntegerField(default=0)
+    error_message = models.TextField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'api_2_scan'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Scan {self.scan_id} - {self.status}"
+
+
+class VulnerabilityTypeTC5(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+    severity = models.CharField(max_length=20, choices=[
+        ('critical', 'Critical'),
+        ('high', 'High'),
+        ('medium', 'Medium'),
+        ('low', 'Low'),
+        ('info', 'Info'),
+    ])
+    description = models.TextField()
+    remediation = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'api_2_vulnerability_type'
+
+    def __str__(self):
+        return f"{self.name} ({self.severity})"
+
+
+class ScanResultTC5(models.Model):
+    RESULT_STATUS_CHOICES = [
+        ('vulnerable', 'Vulnerable'),
+        ('secure', 'Secure'),
+        ('error', 'Error'),
+        ('skipped', 'Skipped'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    scan = models.ForeignKey(ScanTC5, on_delete=models.CASCADE, related_name='results')
+    api_id = models.IntegerField()  # Reference to api_orch_postmanapi.id
+    api_name = models.CharField(max_length=255)
+    api_url = models.URLField()
+    api_method = models.CharField(max_length=10)
+    vulnerability_type = models.ForeignKey(VulnerabilityTypeTC5, on_delete=models.CASCADE)
+    status = models.CharField(max_length=20, choices=RESULT_STATUS_CHOICES)
+    confidence = models.FloatField(default=0.0)  # 0.0 to 1.0
+    evidence = JSONField(default=dict)
+    risk_score = models.FloatField(default=0.0)
+    payload_used = JSONField(default=dict)
+    response_analysis = JSONField(default=dict)
+    exploit_details = models.TextField(null=True, blank=True)
+    remediation_suggestion = models.TextField(null=True, blank=True)
+    false_positive = models.BooleanField(default=False)
+    verified = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'api_2_scan_result'
+        ordering = ['-risk_score', '-created_at']
+        indexes = [
+            models.Index(fields=['scan', 'status']),
+            models.Index(fields=['vulnerability_type', 'status']),
+            models.Index(fields=['risk_score']),
+            models.Index(fields=['api_id']),
+        ]
+
+    def __str__(self):
+        return f"{self.api_name} - {self.vulnerability_type.name} ({self.status})"
+
+
+class ScanLogTC5(models.Model):
+    LOG_LEVEL_CHOICES = [
+        ('debug', 'Debug'),
+        ('info', 'Info'),
+        ('warning', 'Warning'),
+        ('error', 'Error'),
+        ('critical', 'Critical'),
+    ]
+
+    scan = models.ForeignKey(ScanTC5, on_delete=models.CASCADE, related_name='logs')
+    level = models.CharField(max_length=20, choices=LOG_LEVEL_CHOICES)
+    message = models.TextField()
+    details = JSONField(default=dict)
+    timestamp = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'api_2_scan_log'
+        ordering = ['-timestamp']
+
+    def __str__(self):
+        return f"{self.scan.scan_id} - {self.level}: {self.message[:50]}"
+
+
+class ApiRequestTC5(models.Model):
+    scan_result = models.ForeignKey(ScanResultTC5, on_delete=models.CASCADE, related_name='requests')
+    request_url = models.URLField()
+    request_method = models.CharField(max_length=10)
+    request_headers = JSONField(default=dict)
+    request_body = models.TextField(null=True, blank=True)
+    response_status = models.IntegerField(null=True, blank=True)
+    response_headers = JSONField(default=dict)
+    response_body = models.TextField(null=True, blank=True)
+    response_time = models.FloatField(null=True, blank=True)  # in seconds
+    timestamp = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'api_2_api_request'
+        ordering = ['-timestamp']
+
+    def __str__(self):
+        return f"{self.request_method} {self.request_url} - {self.response_status}"
+
+
+class ScanConfigurationTC5(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+    description = models.TextField()
+    enabled_vulnerability_types = models.ManyToManyField(VulnerabilityTypeTC5)
+    max_concurrent_requests = models.IntegerField(default=5)
+    request_timeout = models.IntegerField(default=30)  # seconds
+    retry_attempts = models.IntegerField(default=3)
+    delay_between_requests = models.FloatField(default=1.0)  # seconds
+    use_ai_analysis = models.BooleanField(default=True)
+    ai_model = models.CharField(max_length=50, default='gpt-3.5-turbo')
+    custom_payloads = JSONField(default=dict)
+    is_default = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'api_2_scan_configuration'
+
+    def __str__(self):
+        return self.name

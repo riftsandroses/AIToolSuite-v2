@@ -5,7 +5,9 @@ from .models import (
     ScanResultTC2, ScanSummaryTC2, TestCredentialTC2, 
     ScanResultTC3, ScanSessionTC3, VulnerabilityTemplateTC3, 
     JWTScanTC4, JWTVulnerabilityTC4, JWTScanLogTC4, 
-    JWTScanConfigTC4, JWTTokenAnalysisTC4
+    JWTScanConfigTC4, JWTTokenAnalysisTC4, ScanTC5, 
+    VulnerabilityTypeTC5, ScanResultTC5, ScanLogTC5, 
+    ApiRequestTC5, ScanConfigurationTC5
 )
 
 
@@ -424,3 +426,134 @@ class JWTVulnerabilityFilterSerializerTC4(serializers.Serializer):
     api_method = serializers.CharField(required=False)
     date_from = serializers.DateTimeField(required=False)
     date_to = serializers.DateTimeField(required=False)
+
+
+class ScanInitiateTC5Serializer(serializers.Serializer):
+    scan_id = serializers.IntegerField()
+    configuration_id = serializers.IntegerField(required=False)
+
+
+class VulnerabilityTypeTC5Serializer(serializers.ModelSerializer):
+    class Meta:
+        model = VulnerabilityTypeTC5
+        fields = '__all__'
+
+
+class ScanLogTC5Serializer(serializers.ModelSerializer):
+    class Meta:
+        model = ScanLogTC5
+        fields = '__all__'
+
+
+class ApiRequestTC5Serializer(serializers.ModelSerializer):
+    class Meta:
+        model = ApiRequestTC5
+        fields = '__all__'
+
+
+class ScanResultTC5Serializer(serializers.ModelSerializer):
+    vulnerability_type = VulnerabilityTypeTC5Serializer(read_only=True)
+    requests = ApiRequestTC5Serializer(many=True, read_only=True)
+    
+    class Meta:
+        model = ScanResultTC5
+        fields = '__all__'
+
+
+class ScanResultSummaryTC5Serializer(serializers.ModelSerializer):
+    vulnerability_type_name = serializers.CharField(source='vulnerability_type.name', read_only=True)
+    vulnerability_severity = serializers.CharField(source='vulnerability_type.severity', read_only=True)
+    
+    class Meta:
+        model = ScanResultTC5
+        fields = [
+            'id', 'api_name', 'api_url', 'api_method', 'status', 
+            'confidence', 'risk_score', 'vulnerability_type_name', 
+            'vulnerability_severity', 'created_at'
+        ]
+
+
+class ScanTC5Serializer(serializers.ModelSerializer):
+    results_count = serializers.SerializerMethodField()
+    vulnerable_count = serializers.SerializerMethodField()
+    secure_count = serializers.SerializerMethodField()
+    error_count = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = ScanTC5
+        fields = '__all__'
+    
+    def get_results_count(self, obj):
+        return obj.results.count()
+    
+    def get_vulnerable_count(self, obj):
+        return obj.results.filter(status='vulnerable').count()
+    
+    def get_secure_count(self, obj):
+        return obj.results.filter(status='secure').count()
+    
+    def get_error_count(self, obj):
+        return obj.results.filter(status='error').count()
+
+
+class ScanDetailTC5Serializer(serializers.ModelSerializer):
+    results = ScanResultSummaryTC5Serializer(many=True, read_only=True)
+    logs = ScanLogTC5Serializer(many=True, read_only=True)
+    
+    class Meta:
+        model = ScanTC5
+        fields = '__all__'
+
+
+class ScanStatsTC5Serializer(serializers.Serializer):
+    total_scans = serializers.IntegerField()
+    completed_scans = serializers.IntegerField()
+    running_scans = serializers.IntegerField()
+    failed_scans = serializers.IntegerField()
+    total_vulnerabilities = serializers.IntegerField()
+    critical_vulnerabilities = serializers.IntegerField()
+    high_vulnerabilities = serializers.IntegerField()
+    medium_vulnerabilities = serializers.IntegerField()
+    low_vulnerabilities = serializers.IntegerField()
+    vulnerability_by_type = serializers.DictField()
+    scan_success_rate = serializers.FloatField()
+    avg_scan_duration = serializers.FloatField()
+
+
+class VulnerabilitySummaryTC5Serializer(serializers.Serializer):
+    vulnerability_type = VulnerabilityTypeTC5Serializer()
+    count = serializers.IntegerField()
+    severity_distribution = serializers.DictField()
+    avg_risk_score = serializers.FloatField()
+    latest_occurrence = serializers.DateTimeField()
+
+
+class ScanConfigurationTC5Serializer(serializers.ModelSerializer):
+    enabled_vulnerability_types = VulnerabilityTypeTC5Serializer(many=True, read_only=True)
+    
+    class Meta:
+        model = ScanConfigurationTC5
+        fields = '__all__'
+
+
+class ScanFilterTC5Serializer(serializers.Serializer):
+    scan_id = serializers.IntegerField(required=False)
+    status = serializers.ChoiceField(
+        choices=['pending', 'running', 'completed', 'failed', 'cancelled'],
+        required=False
+    )
+    vulnerability_type = serializers.IntegerField(required=False)
+    severity = serializers.ChoiceField(
+        choices=['critical', 'high', 'medium', 'low', 'info'],
+        required=False
+    )
+    confidence_min = serializers.FloatField(required=False, min_value=0.0, max_value=1.0)
+    risk_score_min = serializers.FloatField(required=False, min_value=0.0)
+    date_from = serializers.DateTimeField(required=False)
+    date_to = serializers.DateTimeField(required=False)
+    api_method = serializers.ChoiceField(
+        choices=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'],
+        required=False
+    )
+    false_positive = serializers.BooleanField(required=False)
+    verified = serializers.BooleanField(required=False)

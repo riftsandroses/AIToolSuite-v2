@@ -1,7 +1,10 @@
 from django.db import models
+from django.db.models import JSONField
 from django.utils import timezone
 from django.contrib.auth.models import User
 import uuid
+import json
+
 
 class CORSScanResultTC1(models.Model):
     SEVERITY_CHOICES = [

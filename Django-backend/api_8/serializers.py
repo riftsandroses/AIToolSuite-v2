@@ -1,5 +1,8 @@
 from rest_framework import serializers
 from .models import CORSScanResultTC1, CORSScanSessionTC1, ScanTC2, VulnerabilityTC2, ScanHistoryTC2, ScanMetricsTC2, ScanTC3, VulnerabilityTC3, ScanHistoryTC3, ScanStatsTC3
+from django.utils import timezone
+from django.db.models import Count, Q
+
 
 class CORSScanRequestTC1Serializer(serializers.Serializer):
     scan_id = serializers.IntegerField(min_value=1)

@@ -7,9 +7,11 @@ import logging
 import re
 import threading
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Any, Tuple
+from django.utils import timezone
+from typing import Dict, List, Any, Tuple, Optional
 from urllib.parse import urljoin, urlparse
 
 # Third-party imports
@@ -40,7 +42,13 @@ from .models import (
     JWTVulnerabilityTC4, 
     JWTScanLogTC4, 
     JWTScanConfigTC4, 
-    JWTTokenAnalysisTC4
+    JWTTokenAnalysisTC4,
+    ScanTC5, 
+    VulnerabilityTypeTC5, 
+    ScanResultTC5, 
+    ScanLogTC5, 
+    ApiRequestTC5, 
+    ScanConfigurationTC5
 )
 
 logger = logging.getLogger(__name__)
@@ -2098,3 +2106,630 @@ class JWTScanServiceTC4:
             api_id=api_id,
             additional_data=additional_data or {}
         )
+
+
+class OpenAIAnalysisServiceTC5:
+    def __init__(self):
+        openai.api_key = getattr(settings, 'OPENAI_API_KEY', '')
+        self.model = "gpt-4o-mini"
+    
+    def analyze_password_reset_vulnerability(self, api_data: Dict, response_data: Dict) -> Dict:
+        """Analyze API response for password reset vulnerabilities using OpenAI"""
+        
+        prompt = f"""
+        Analyze this API endpoint for password reset vulnerabilities:
+        
+        API Details:
+        - Method: {api_data.get('method')}
+        - URL: {api_data.get('url')}
+        - Headers: {json.dumps(api_data.get('headers', {}), indent=2)}
+        - Body: {json.dumps(api_data.get('body', {}), indent=2)}
+        
+        Response Details:
+        - Status Code: {response_data.get('status_code')}
+        - Headers: {json.dumps(response_data.get('headers', {}), indent=2)}
+        - Body: {response_data.get('body', '')}
+        - Response Time: {response_data.get('response_time')}ms
+        
+        Check for these password reset vulnerabilities:
+        1. Predictable or weak reset tokens
+        2. Token reuse possibilities
+        3. Missing verification of old password/OTP
+        4. Exposed sensitive information in response
+        5. Lack of rate limiting
+        6. Missing CSRF protection
+        7. Insecure token transmission
+        8. Long-lived tokens
+        
+        Provide response in JSON format:
+        {{
+            "is_vulnerable": boolean,
+            "confidence": float (0.0-1.0),
+            "vulnerability_type": "string",
+            "risk_score": float (0.0-10.0),
+            "evidence": ["list of evidence"],
+            "exploit_details": "string",
+            "remediation": "string"
+        }}
+        """
+        
+        try:
+            response = openai.ChatCompletion.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "You are a cybersecurity expert specializing in API security testing."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.1,
+                max_tokens=1000
+            )
+            
+            result = response.choices[0].message.content.strip()
+            
+            # Try to parse JSON response
+            try:
+                analysis = json.loads(result)
+                return analysis
+            except json.JSONDecodeError:
+                # Fallback if AI doesn't return valid JSON
+                return {
+                    "is_vulnerable": False,
+                    "confidence": 0.1,
+                    "vulnerability_type": "analysis_error",
+                    "risk_score": 0.0,
+                    "evidence": ["AI analysis failed to parse"],
+                    "exploit_details": "Could not analyze response",
+                    "remediation": "Manual review required"
+                }
+                
+        except Exception as e:
+            return {
+                "is_vulnerable": False,
+                "confidence": 0.0,
+                "vulnerability_type": "analysis_error",
+                "risk_score": 0.0,
+                "evidence": [f"AI analysis error: {str(e)}"],
+                "exploit_details": "Analysis service unavailable",
+                "remediation": "Manual review required"
+            }
+
+
+class ApiSecurityScannerTC5:
+    def __init__(self):
+        self.ai_service = OpenAIAnalysisServiceTC5()
+        self.session = requests.Session()
+        self.session.headers.update({
+            'User-Agent': 'SecurityScanner/1.0'
+        })
+    
+    def scan_password_reset_endpoint(self, api_data: Dict, jwt_token: str) -> Dict:
+        """Scan a single API endpoint for password reset vulnerabilities"""
+        
+        # Prepare headers
+        headers = json.loads(api_data.get('headers', '{}'))
+        if jwt_token:
+            headers['Authorization'] = f'Bearer {jwt_token}'
+        
+        # Prepare request data
+        method = api_data.get('method', 'GET').upper()
+        url = api_data.get('url', '')
+        body_data = api_data.get('body', {})
+        
+        # Parse body if it's a string
+        if isinstance(body_data, str):
+            try:
+                body_data = json.loads(body_data)
+            except:
+                body_data = {}
+        
+        # Extract raw body content
+        raw_body = None
+        if body_data.get('raw'):
+            try:
+                raw_body = json.loads(body_data['raw'])
+            except:
+                raw_body = body_data['raw']
+        
+        # Test different password reset scenarios
+        test_results = []
+        
+        # Test 1: Normal password reset request
+        test_results.append(self._test_normal_reset(method, url, headers, raw_body))
+        
+        # Test 2: Token predictability
+        test_results.append(self._test_token_predictability(method, url, headers, raw_body))
+        
+        # Test 3: Token reuse
+        test_results.append(self._test_token_reuse(method, url, headers, raw_body))
+        
+        # Test 4: Missing verification
+        test_results.append(self._test_missing_verification(method, url, headers, raw_body))
+        
+        # Combine results
+        return self._combine_test_results(test_results, api_data)
+    
+    def _test_normal_reset(self, method: str, url: str, headers: Dict, body: any) -> Dict:
+        """Test normal password reset flow"""
+        try:
+            start_time = time.time()
+            
+            if method == 'POST' and body:
+                response = self.session.post(url, json=body, headers=headers, timeout=30)
+            elif method == 'GET':
+                response = self.session.get(url, headers=headers, timeout=30)
+            else:
+                response = self.session.request(method, url, json=body, headers=headers, timeout=30)
+            
+            response_time = (time.time() - start_time) * 1000
+            
+            response_data = {
+                'status_code': response.status_code,
+                'headers': dict(response.headers),
+                'body': response.text[:2000],  # Limit body size
+                'response_time': response_time
+            }
+            
+            return {
+                'test_name': 'normal_reset',
+                'success': True,
+                'response_data': response_data,
+                'request_data': {
+                    'method': method,
+                    'url': url,
+                    'headers': headers,
+                    'body': body
+                }
+            }
+            
+        except Exception as e:
+            return {
+                'test_name': 'normal_reset',
+                'success': False,
+                'error': str(e),
+                'response_data': None,
+                'request_data': {
+                    'method': method,
+                    'url': url,
+                    'headers': headers,
+                    'body': body
+                }
+            }
+    
+    def _test_token_predictability(self, method: str, url: str, headers: Dict, body: any) -> Dict:
+        """Test for predictable reset tokens"""
+        # This is a simplified test - in practice, you'd need multiple requests to analyze patterns
+        try:
+            if not body or method != 'POST':
+                return {'test_name': 'token_predictability', 'success': False, 'error': 'Not applicable'}
+            
+            # Make multiple requests to see if tokens follow a pattern
+            responses = []
+            for i in range(3):
+                response = self.session.post(url, json=body, headers=headers, timeout=30)
+                responses.append({
+                    'status_code': response.status_code,
+                    'body': response.text[:1000]
+                })
+                time.sleep(1)  # Delay between requests
+            
+            return {
+                'test_name': 'token_predictability',
+                'success': True,
+                'responses': responses,
+                'request_data': {'method': method, 'url': url}
+            }
+            
+        except Exception as e:
+            return {
+                'test_name': 'token_predictability',
+                'success': False,
+                'error': str(e)
+            }
+    
+    def _test_token_reuse(self, method: str, url: str, headers: Dict, body: any) -> Dict:
+        """Test if tokens can be reused"""
+        # Simplified implementation
+        return {
+            'test_name': 'token_reuse',
+            'success': True,
+            'finding': 'Manual verification required',
+            'request_data': {'method': method, 'url': url}
+        }
+    
+    def _test_missing_verification(self, method: str, url: str, headers: Dict, body: any) -> Dict:
+        """Test for missing verification steps"""
+        try:
+            # Test with empty/missing fields
+            if body and isinstance(body, dict):
+                modified_body = body.copy()
+                # Remove password field if exists
+                for key in ['password', 'oldPassword', 'currentPassword']:
+                    if key in modified_body:
+                        del modified_body[key]
+                
+                response = self.session.request(method, url, json=modified_body, headers=headers, timeout=30)
+                
+                return {
+                    'test_name': 'missing_verification',
+                    'success': True,
+                    'response_data': {
+                        'status_code': response.status_code,
+                        'body': response.text[:1000]
+                    },
+                    'request_data': {'method': method, 'url': url, 'modified_body': modified_body}
+                }
+            
+            return {'test_name': 'missing_verification', 'success': False, 'error': 'Not applicable'}
+            
+        except Exception as e:
+            return {
+                'test_name': 'missing_verification',
+                'success': False,
+                'error': str(e)
+            }
+    
+    def _combine_test_results(self, test_results: List[Dict], api_data: Dict) -> Dict:
+        """Combine all test results and get AI analysis"""
+        
+        # Get the main response for AI analysis
+        main_response = None
+        for test in test_results:
+            if test.get('test_name') == 'normal_reset' and test.get('success'):
+                main_response = test.get('response_data')
+                break
+        
+        if not main_response:
+            return {
+                'status': 'error',
+                'error': 'Failed to get API response',
+                'test_results': test_results
+            }
+        
+        # Get AI analysis
+        ai_analysis = self.ai_service.analyze_password_reset_vulnerability(api_data, main_response)
+        
+        return {
+            'status': 'completed',
+            'ai_analysis': ai_analysis,
+            'test_results': test_results,
+            'main_response': main_response
+        }
+
+
+class ScanServiceTC5:
+    def __init__(self):
+        self.scanner = ApiSecurityScannerTC5()
+    
+    def initiate_scan(self, scan_id: int, configuration_id: Optional[int] = None) -> ScanTC5:
+        """Initiate a new security scan"""
+        
+        # Check if scan already exists
+        existing_scan = ScanTC5.objects.filter(scan_id=scan_id).first()
+        if existing_scan and existing_scan.status in ['running', 'pending']:
+            raise ValueError(f"Scan {scan_id} is already {existing_scan.status}")
+        
+        # Create new scan record
+        scan = ScanTC5.objects.create(
+            scan_id=scan_id,
+            status='pending'
+        )
+        
+        # Log scan initiation
+        ScanLogTC5.objects.create(
+            scan=scan,
+            level='info',
+            message=f'Scan {scan_id} initiated',
+            details={'configuration_id': configuration_id}
+        )
+        
+        # Start scan asynchronously (in a real app, use Celery)
+        self._execute_scan(scan, configuration_id)
+        
+        return scan
+    
+    def _execute_scan(self, scan: ScanTC5, configuration_id: Optional[int] = None):
+        """Execute the security scan"""
+        
+        try:
+            # Update scan status
+            scan.status = 'running'
+            scan.save()
+            
+            # Get APIs for this scan_id from api_orch app
+            apis = self._get_apis_for_scan(scan.scan_id)
+            if not apis:
+                raise Exception(f"No APIs found for scan_id {scan.scan_id}")
+            
+            scan.total_apis = len(apis)
+            scan.save()
+            
+            # Get JWT token
+            jwt_token = self._get_jwt_token(scan.scan_id)
+            
+            # Get vulnerability type for password reset
+            vuln_type, _ = VulnerabilityTypeTC5.objects.get_or_create(
+                name='Insecure Password Reset Flow',
+                defaults={
+                    'severity': 'high',
+                    'description': 'API endpoint vulnerable to insecure password reset attacks',
+                    'remediation': 'Implement secure token generation, proper verification, and rate limiting'
+                }
+            )
+            
+            vulnerabilities_found = 0
+            
+            for api in apis:
+                try:
+                    # Log API scan start
+                    ScanLogTC5.objects.create(
+                        scan=scan,
+                        level='info',
+                        message=f'Scanning API: {api.get("name", "Unknown")}',
+                        details={'api_id': api.get('id')}
+                    )
+                    
+                    # Scan the API
+                    scan_result = self.scanner.scan_password_reset_endpoint(api, jwt_token)
+                    
+                    # Save scan result
+                    result = self._save_scan_result(scan, api, vuln_type, scan_result)
+                    
+                    if result.status == 'vulnerable':
+                        vulnerabilities_found += 1
+                    
+                    scan.scanned_apis += 1
+                    scan.save()
+                    
+                except Exception as api_error:
+                    # Log API scan error
+                    ScanLogTC5.objects.create(
+                        scan=scan,
+                        level='error',
+                        message=f'Error scanning API {api.get("id")}: {str(api_error)}',
+                        details={'api_id': api.get('id'), 'error': str(api_error)}
+                    )
+                    
+                    # Create error result
+                    ScanResultTC5.objects.create(
+                        scan=scan,
+                        api_id=api.get('id', 0),
+                        api_name=api.get('name', 'Unknown'),
+                        api_url=api.get('url', ''),
+                        api_method=api.get('method', 'GET'),
+                        vulnerability_type=vuln_type,
+                        status='error',
+                        evidence={'error': str(api_error)}
+                    )
+                    
+                    scan.scanned_apis += 1
+                    scan.save()
+            
+            # Complete scan
+            scan.status = 'completed'
+            scan.completed_at = timezone.now()
+            scan.vulnerabilities_found = vulnerabilities_found
+            scan.save()
+            
+            ScanLogTC5.objects.create(
+                scan=scan,
+                level='info',
+                message=f'Scan completed. Found {vulnerabilities_found} vulnerabilities',
+                details={'total_apis': scan.total_apis, 'vulnerabilities': vulnerabilities_found}
+            )
+            
+        except Exception as e:
+            # Mark scan as failed
+            scan.status = 'failed'
+            scan.error_message = str(e)
+            scan.completed_at = timezone.now()
+            scan.save()
+            
+            ScanLogTC5.objects.create(
+                scan=scan,
+                level='error',
+                message=f'Scan failed: {str(e)}',
+                details={'error': str(e)}
+            )
+    
+    def _get_apis_for_scan(self, scan_id: int) -> List[Dict]:
+        """Get APIs from api_orch_postmanapi table"""
+        from django.db import connection
+        
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                SELECT "id", "name", "method", "url", "headers", "body", "authorization", 
+                       "query_params", "pre_request_script", "test_script", "created_at"
+                FROM api_orch_postmanapi 
+                WHERE "scan_id" = %s
+            """, [scan_id])
+            
+            columns = [col[0] for col in cursor.description]
+            apis = []
+            
+            for row in cursor.fetchall():
+                api_dict = dict(zip(columns, row))
+                apis.append(api_dict)
+            
+            return apis
+    
+    def _get_jwt_token(self, scan_id: int) -> Optional[str]:
+        """Get JWT token from api_orch_scantokens table"""
+        from django.db import connection
+        
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                SELECT "access_token" 
+                FROM api_orch_scantokens 
+                WHERE "scan_id" = %s 
+                ORDER BY created_at DESC 
+                LIMIT 1
+            """, [scan_id])
+            
+            result = cursor.fetchone()
+            return result[0] if result else None
+    
+    def _save_scan_result(self, scan: ScanTC5, api: Dict, vuln_type: VulnerabilityTypeTC5, scan_result: Dict) -> ScanResultTC5:
+        """Save scan result to database"""
+        
+        ai_analysis = scan_result.get('ai_analysis', {})
+        
+        # Determine status based on AI analysis
+        status = 'secure'
+        if ai_analysis.get('is_vulnerable'):
+            status = 'vulnerable'
+        elif scan_result.get('status') == 'error':
+            status = 'error'
+        
+        # Create scan result
+        result = ScanResultTC5.objects.create(
+            scan=scan,
+            api_id=api.get('id', 0),
+            api_name=api.get('name', 'Unknown'),
+            api_url=api.get('url', ''),
+            api_method=api.get('method', 'GET'),
+            vulnerability_type=vuln_type,
+            status=status,
+            confidence=ai_analysis.get('confidence', 0.0),
+            risk_score=ai_analysis.get('risk_score', 0.0),
+            evidence=ai_analysis.get('evidence', []),
+            exploit_details=ai_analysis.get('exploit_details', ''),
+            remediation_suggestion=ai_analysis.get('remediation', ''),
+            response_analysis=scan_result.get('main_response', {}),
+            payload_used=scan_result.get('test_results', [])
+        )
+        
+        # Save API requests/responses
+        for test in scan_result.get('test_results', []):
+            if test.get('success') and test.get('response_data'):
+                ApiRequestTC5.objects.create(
+                    scan_result=result,
+                    request_url=api.get('url', ''),
+                    request_method=api.get('method', 'GET'),
+                    request_headers=test.get('request_data', {}).get('headers', {}),
+                    request_body=json.dumps(test.get('request_data', {}).get('body', {})),
+                    response_status=test.get('response_data', {}).get('status_code'),
+                    response_headers=test.get('response_data', {}).get('headers', {}),
+                    response_body=test.get('response_data', {}).get('body', ''),
+                    response_time=test.get('response_data', {}).get('response_time', 0.0) / 1000.0
+                )
+        
+        return result
+    
+    def get_scan_status(self, scan_id: int) -> Dict:
+        """Get current status of a scan"""
+        try:
+            scan = ScanTC5.objects.get(scan_id=scan_id)
+            
+            progress = 0
+            if scan.total_apis > 0:
+                progress = (scan.scanned_apis / scan.total_apis) * 100
+            
+            return {
+                'scan_id': scan.scan_id,
+                'status': scan.status,
+                'progress': round(progress, 2),
+                'total_apis': scan.total_apis,
+                'scanned_apis': scan.scanned_apis,
+                'vulnerabilities_found': scan.vulnerabilities_found,
+                'started_at': scan.started_at,
+                'completed_at': scan.completed_at,
+                'error_message': scan.error_message
+            }
+        except ScanTC5.DoesNotExist:
+            return {'error': f'Scan {scan_id} not found'}
+    
+    def get_scan_stats(self) -> Dict:
+        """Get overall scanning statistics"""
+        from django.db.models import Count, Avg, Q
+        from django.db.models.functions import Extract
+        
+        # Basic counts
+        total_scans = ScanTC5.objects.count()
+        completed_scans = ScanTC5.objects.filter(status='completed').count()
+        running_scans = ScanTC5.objects.filter(status='running').count()
+        failed_scans = ScanTC5.objects.filter(status='failed').count()
+        
+        # Vulnerability counts
+        vuln_results = ScanResultTC5.objects.filter(status='vulnerable')
+        total_vulnerabilities = vuln_results.count()
+        
+        vuln_by_severity = vuln_results.values('vulnerability_type__severity').annotate(
+            count=Count('id')
+        )
+        
+        severity_counts = {item['vulnerability_type__severity']: item['count'] for item in vuln_by_severity}
+        
+        # Vulnerability by type
+        vuln_by_type = vuln_results.values('vulnerability_type__name').annotate(
+            count=Count('id')
+        )
+        type_counts = {item['vulnerability_type__name']: item['count'] for item in vuln_by_type}
+        
+        # Success rate
+        success_rate = 0
+        if total_scans > 0:
+            success_rate = (completed_scans / total_scans) * 100
+        
+        # Average scan duration
+        completed_scan_durations = ScanTC5.objects.filter(
+            status='completed',
+            completed_at__isnull=False
+        ).extra(
+            select={'duration': 'EXTRACT(EPOCH FROM (completed_at - started_at))'}
+        ).values_list('duration', flat=True)
+        
+        avg_duration = 0
+        if completed_scan_durations:
+            avg_duration = sum(completed_scan_durations) / len(completed_scan_durations)
+        
+        return {
+            'total_scans': total_scans,
+            'completed_scans': completed_scans,
+            'running_scans': running_scans,
+            'failed_scans': failed_scans,
+            'total_vulnerabilities': total_vulnerabilities,
+            'critical_vulnerabilities': severity_counts.get('critical', 0),
+            'high_vulnerabilities': severity_counts.get('high', 0),
+            'medium_vulnerabilities': severity_counts.get('medium', 0),
+            'low_vulnerabilities': severity_counts.get('low', 0),
+            'vulnerability_by_type': type_counts,
+            'scan_success_rate': round(success_rate, 2),
+            'avg_scan_duration': round(avg_duration, 2)
+        }
+    
+    def get_vulnerability_summary(self) -> List[Dict]:
+        """Get vulnerability summary grouped by type"""
+        from django.db.models import Count, Avg, Max
+        
+        summary = VulnerabilityTypeTC5.objects.annotate(
+            result_count=Count('scanresulttc5'),
+            avg_risk_score=Avg('scanresulttc5__risk_score'),
+            latest_occurrence=Max('scanresulttc5__created_at')
+        ).filter(result_count__gt=0)
+        
+        result = []
+        for vuln_type in summary:
+            # Get severity distribution for this vulnerability type
+            severity_dist = ScanResultTC5.objects.filter(
+                vulnerability_type=vuln_type,
+                status='vulnerable'
+            ).values('vulnerability_type__severity').annotate(
+                count=Count('id')
+            )
+            
+            severity_distribution = {item['vulnerability_type__severity']: item['count'] for item in severity_dist}
+            
+            result.append({
+                'vulnerability_type': {
+                    'id': vuln_type.id,
+                    'name': vuln_type.name,
+                    'severity': vuln_type.severity,
+                    'description': vuln_type.description
+                },
+                'count': vuln_type.result_count,
+                'severity_distribution': severity_distribution,
+                'avg_risk_score': round(vuln_type.avg_risk_score or 0, 2),
+                'latest_occurrence': vuln_type.latest_occurrence
+            })
+        
+        return result

@@ -368,6 +368,17 @@ CELERY_BEAT_SCHEDULE = {
 }
 CELERYD_FORCE_EXECV = True
 
+# Cache Configuration
+CACHES = {
+    'default': {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': 'redis://127.0.0.1:6379/1',
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+        }
+    }
+}
+
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')  # If using HTTPS
 USE_X_FORWARDED_HOST = True
 
@@ -525,4 +536,22 @@ JWT_SCANNER_CONFIG = {
         {'level': 'admin'},
         {'privilege': 'admin'}
     ]
+}
+
+# API-2 TC-5 Insecure Password Reset Flow
+SECURITY_SCANNER_CONFIG = {
+    'MAX_CONCURRENT_REQUESTS': 5,
+    'REQUEST_TIMEOUT': 30,  # seconds
+    'RETRY_ATTEMPTS': 3,
+    'DELAY_BETWEEN_REQUESTS': 1.0,  # seconds
+    'MAX_RESPONSE_SIZE': 1024 * 1024,  # 1MB
+    'USER_AGENT': 'SecurityScanner/1.0',
+}
+API_SECURITY_CONFIG = {
+    'ENABLE_AI_ANALYSIS': True,
+    'AI_CONFIDENCE_THRESHOLD': 0.7,
+    'RISK_SCORE_THRESHOLD': 5.0,
+    'AUTO_VERIFY_HIGH_CONFIDENCE': True,
+    'SAVE_REQUEST_RESPONSES': True,
+    'MAX_SCAN_DURATION': 3600,  # 1 hour
 }
