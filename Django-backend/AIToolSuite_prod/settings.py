@@ -62,6 +62,7 @@ INSTALLED_APPS = [
     'api_custom_testing',
     'api_2',
     'api_4',
+    'api_6',
     'api_7',
     'api_8',
     'api_9'
@@ -213,6 +214,7 @@ REST_FRAMEWORK = {
 
     'DEFAULT_RENDERER_CLASSES': (  
         'rest_framework.renderers.JSONRenderer',  
+        "rest_framework_csv.renderers.CSVRenderer",
         'rest_framework.renderers.BrowsableAPIRenderer',  # Enables DRF web UI  
     ),
 
@@ -252,12 +254,18 @@ LOGGING = {
         'file': {
             'level': 'INFO',
             'class': 'logging.FileHandler',
-            'filename': os.path.join(BASE_DIR, 'runtime_logs.log'),
+            'filename': 'logs/runtime_logs.log',
             'formatter': 'verbose',
         },
         'console': {
                 'level': 'DEBUG',
                 'class': 'logging.StreamHandler',
+        },
+        'api6_file': {
+            'level': 'INFO',
+            'class': 'logging.FileHandler',
+            'filename': 'logs/api6_vulnerability_tests.log',
+            'formatter': 'verbose',
         },
     },
     'loggers': {
@@ -316,6 +324,11 @@ LOGGING = {
         },
         'api_2': {
             'handlers': ['file', 'console'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+        'api_6': {
+            'handlers': ['api6_file'],
             'level': 'INFO',
             'propagate': True,
         },
@@ -555,3 +568,17 @@ API_SECURITY_CONFIG = {
     'SAVE_REQUEST_RESPONSES': True,
     'MAX_SCAN_DURATION': 3600,  # 1 hour
 }
+
+# API-6 TC-1 Mass Account Creation
+API_6_SETTINGS = {
+    'DEFAULT_SCAN_TIMEOUT': 1800,  # 30 minutes
+    'MAX_ACCOUNTS_PER_API': 10,
+    'DEFAULT_REQUEST_TIMEOUT': 30,
+    'INTERACTSH_DOMAIN': 'interact.sh',
+    'OOB_TIMEOUT': 60,  # seconds to wait for OOB callbacks
+    'ENABLE_AI_PAYLOADS': True,  # Enable AI-generated payloads
+    'MAX_PAYLOAD_SIZE': 10000,  # Maximum size for payloads
+    'RATE_LIMIT_DELAY': 0.5,  # Delay between requests in seconds
+}
+ASYNC_TIMEOUT = 300  # 5 minutes default timeout for scans
+MAX_CONCURRENT_TESTS = 10  # Maximum concurrent vulnerability tests

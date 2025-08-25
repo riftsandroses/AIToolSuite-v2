@@ -22,6 +22,19 @@ app.conf.beat_schedule = {
         'task': 'api_4.tasks.cleanup_old_scans_task',
         'schedule': crontab(hour=2, minute=0),  # Run daily at 2 AM
     },
+    'generate-daily-report': {
+        'task': 'api_6.tasks.generate_daily_security_report',
+        'schedule': 86400.0,  # Run daily
+        'options': {'expires': 3600}  # Expire after 1 hour if not executed
+    },
+    'update-scan-statistics': {
+        'task': 'api_6.tasks.update_scan_statistics',
+        'schedule': 1800.0,  # Run every 30 minutes
+    },
+    'check-oob-interactions': {
+        'task': 'api_6.tasks.check_oob_interactions',
+        'schedule': 300.0,  # Run every 5 minutes
+    },
 }
 app.conf.timezone = 'UTC'
 

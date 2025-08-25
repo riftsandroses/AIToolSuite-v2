@@ -48,13 +48,7 @@ class TestCaseDefinitions:
                 'TC-7': 'Security Misconfiguration'
             },
             'API6:2023': {
-                'TC-1': 'Unrestricted Access to Sensitive Business Flows',
-                'TC-2': 'Broken Function Level Authorization',
-                'TC-3': 'Unrestricted Resource Consumption',
-                'TC-4': 'Broken Authentication',
-                'TC-5': 'Broken Object Property Level Authorization',
-                'TC-6': 'Server Side Request Forgery',
-                'TC-7': 'Security Misconfiguration'
+                'TC-1': 'Mass Account Creation'
             },
             'API7:2023': {
                 'TC-1': 'Server Side Request Forgery'
