@@ -40,7 +40,6 @@ import API92023TC2 from "./Components/APIPentest/TestCasePages/API9/API92023TC2"
 import API92023TC3 from "./Components/APIPentest/TestCasePages/API9/API92023TC3";
 import API92023TC4 from "./Components/APIPentest/TestCasePages/API9/API92023TC4";
 import API92023TC5 from "./Components/APIPentest/TestCasePages/API9/API92023TC5";
-import API92023TC6 from "./Components/APIPentest/TestCasePages/API9/API92023TC6";
 
 const darkTheme = createTheme({
   palette: {
@@ -177,8 +176,6 @@ function App() {
           <Route path="/api-pentest/scan/:scanId/API92023TC3" element={<UserAuth><API92023TC3 /></UserAuth>} />
           <Route path="/api-pentest/scan/:scanId/API92023TC4" element={<UserAuth><API92023TC4 /></UserAuth>} />
           <Route path="/api-pentest/scan/:scanId/API92023TC5" element={<UserAuth><API92023TC5 /></UserAuth>} />
-          <Route path="/api-pentest/scan/:scanId/API92023TC6" element={<UserAuth><API92023TC6 /></UserAuth>} />
-
         </Routes>
       </Router>
     </ThemeProvider>
