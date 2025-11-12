@@ -1,0 +1,70 @@
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from .views import (
+    CORSScanStartTC1View,
+    CORSScanResultsTC1View,
+    CORSScanStatusTC1View,
+    CORSVulnerabilitySummaryTC1View,
+    CORSScanStatsTC1View,
+    CORSScanHistoryTC1View,
+    CORSResultDetailTC1View,
+    CORSScanDeleteTC1View,
+    CORSScanRetryTC1View,
+    InitiateTLSScanViewTC2,
+    ScanStatusViewTC2,
+    ScanResultsViewTC2,
+    VulnerabilitySummaryViewTC2,
+    ScanStatsViewTC2,
+    ScanHistoryViewTC2,
+    VulnerabilityDetailViewTC2,
+    ScanListViewTC2,
+    CancelScanViewTC2,
+    StartScanAPIViewTC3,
+    ScanStatusAPIViewTC3,
+    ScanResultsAPIViewTC3,
+    VulnerabilitySummaryAPIViewTC3,
+    ScanStatsAPIViewTC3,
+    ScanHistoryAPIViewTC3,
+    AllScansAPIViewTC3,
+    VulnerabilityDetailAPIViewTC3,
+    DeleteScanAPIViewTC3,
+    CancelScanAPIViewTC3
+)
+
+urlpatterns = [
+    # TC-1 CORS Misconfiguration
+    path('cors/scan/start/', CORSScanStartTC1View.as_view(), name='cors_scan_start_tc1'),
+    path('cors/scan/results/', CORSScanResultsTC1View.as_view(), name='cors_scan_results_tc1'),
+    path('cors/scan/status/', CORSScanStatusTC1View.as_view(), name='cors_scan_status_tc1'),
+    path('cors/vulnerability/summary/', CORSVulnerabilitySummaryTC1View.as_view(), name='cors_vulnerability_summary_tc1'),
+    path('cors/scan/stats/', CORSScanStatsTC1View.as_view(), name='cors_scan_stats_tc1'),
+    path('cors/scan/history/', CORSScanHistoryTC1View.as_view(), name='cors_scan_history_tc1'),
+    path('cors/result/<int:result_id>/', CORSResultDetailTC1View.as_view(), name='cors_result_detail_tc1'),
+    path('cors/scan/delete/', CORSScanDeleteTC1View.as_view(), name='cors_scan_delete_tc1'),
+    path('cors/scan/retry/', CORSScanRetryTC1View.as_view(), name='cors_scan_retry_tc1'),
+
+    # TC-2 TLS & Security Headers Misconfiguration    
+    path('scan-tc2/initiate/', InitiateTLSScanViewTC2.as_view(), name='initiate-scan'),
+    path('scan-tc2/<str:scan_identifier>/status/', ScanStatusViewTC2.as_view(), name='scan-status'),
+    path('scan-tc2/<str:scan_identifier>/results/', ScanResultsViewTC2.as_view(), name='scan-results'),
+    path('scan-tc2/<str:scan_identifier>/cancel/', CancelScanViewTC2.as_view(), name='cancel-scan'),
+    path('scans-tc2/', ScanListViewTC2.as_view(), name='scan-list'),
+    path('vulnerabilities-tc2/summary/', VulnerabilitySummaryViewTC2.as_view(), name='vulnerability-summary'),
+    path('vulnerability-tc2/<uuid:vulnerability_id>/', VulnerabilityDetailViewTC2.as_view(), name='vulnerability-detail'),
+    path('analytics-tc2/stats/', ScanStatsViewTC2.as_view(), name='scan-stats'),
+    path('scan-tc2/<str:scan_identifier>/history/', ScanHistoryViewTC2.as_view(), name='scan-history'),
+    path('history-tc2/', ScanHistoryViewTC2.as_view(), name='global-history'),
+    
+    # TC-3 Excessive Debug Information
+    path('scan-tc3/start/', StartScanAPIViewTC3.as_view(), name='start_scan_tc3'),
+    path('scan-tc3/<int:scan_id>/status/', ScanStatusAPIViewTC3.as_view(), name='scan_status_tc3'),
+    path('scan-tc3/<int:scan_id>/results/', ScanResultsAPIViewTC3.as_view(), name='scan_results_tc3'),
+    path('scan-tc3/<int:scan_id>/stats/', ScanStatsAPIViewTC3.as_view(), name='scan_stats_tc3'),
+    path('scan-tc3/<int:scan_id>/history/', ScanHistoryAPIViewTC3.as_view(), name='scan_history_tc3'),
+    path('scan-tc3/<int:scan_id>/cancel/', CancelScanAPIViewTC3.as_view(), name='cancel_scan_tc3'),
+    path('scan-tc3/<int:scan_id>/delete/', DeleteScanAPIViewTC3.as_view(), name='delete_scan_tc3'),
+    path('vulnerability-tc3/<int:vulnerability_id>/', VulnerabilityDetailAPIViewTC3.as_view(), name='vulnerability_detail_tc3'),
+    path('vulnerability-tc3/summary/', VulnerabilitySummaryAPIViewTC3.as_view(), name='vulnerability_summary_tc3'),
+    path('scan-tc3/<int:scan_id>/vulnerability-tc3/summary/', VulnerabilitySummaryAPIViewTC3.as_view(), name='scan_vulnerability_summary_tc3'),
+    path('scans-tc3/', AllScansAPIViewTC3.as_view(), name='all_scans_tc3'),
+]

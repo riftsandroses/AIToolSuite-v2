@@ -1,0 +1,42 @@
+# ----------------------------------------------------------------------
+# 1. PYTHON / DJANGO BACKEND IGNORES (Located in /django_backend)
+# ----------------------------------------------------------------------
+
+AiToolSuite/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.pyc
+*.pyd
+*.so
+
+# Django specific
+*.sqlite3
+/django_backend/media/   # User-uploaded files
+
+# Environment Files (CRITICAL for security)
+/django_backend/.env
+/django_backend/.DS_Store  # macOS specific
+
+# Local settings file (if you use one to override sensitive production settings)
+/django_backend/*/local_settings.py
+
+# ----------------------------------------------------------------------
+# 2. JAVASCRIPT / REACT FRONTEND IGNORES (Located in /react_frontend)
+# ----------------------------------------------------------------------
+
+# Dependencies and build output
+/react_frontend/node_modules
+/react_frontend/build  # Output directory for production build
+
+# Environment Files (CRITICAL for security)
+/react_frontend/.env
+/react_frontend/.env.local
+/react_frontend/.env.development.local
+/react_frontend/.env.production.local
+
+# Miscellaneous
+.DS_Store
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
