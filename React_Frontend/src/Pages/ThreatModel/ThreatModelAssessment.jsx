@@ -408,17 +408,20 @@ const ThreatModelAssessment = () => {
                     </span>
                   </div>
                   <div className="flex items-center space-x-2">
-                    <span className={`px-2 py-1 text-xs rounded ${threat.likelihood === 'High' ? 'bg-red-600 text-white' :
-                      threat.likelihood === 'Medium' ? 'bg-yellow-600 text-white' :
+                    <span className={`px-2 py-1 text-xs rounded ${threat.likelihood === 'high' ? 'bg-red-600 text-white' :
+                      threat.likelihood === 'medium' ? 'bg-yellow-600 text-white' :
                         'bg-green-600 text-white'
                       }`}>
-                      {threat.likelihood} Likelihood
+                      Likelihood:- {threat.likelihood}
                     </span>
-                    <span className={`px-2 py-1 text-xs rounded ${threat.potential_impact?.includes('High') ? 'bg-red-600 text-white' :
-                      threat.potential_impact?.includes('Medium') ? 'bg-yellow-600 text-white' :
+                    <span className={`px-2 py-1 text-xs rounded ${threat.potential_impact?.toLowerCase().includes('high') ? 'bg-red-600 text-white' :
+                      threat.potential_impact?.toLowerCase().includes('medium') ? 'bg-yellow-600 text-white' :
                         'bg-green-600 text-white'
                       }`}>
-                      High Impact
+                      Impact:- {
+                        threat.potential_impact?.toLowerCase().includes('medium') ? 'Medium' :
+                          'High'
+                      }
                     </span>
                   </div>
                 </div>

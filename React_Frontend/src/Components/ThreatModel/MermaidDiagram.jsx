@@ -8,7 +8,14 @@ const MermaidDiagram = ({ chart, id }) => {
     const [isLoading, setIsLoading] = useState(true);
     const [svgContent, setSvgContent] = useState('');
     const [isFullScreen, setIsFullScreen] = useState(false);
-    const [zoom, setZoom] = useState(2); // Default to 200%
+
+    // FIX: Moved constant definitions up to resolve "ReferenceError: Cannot access 'DEFAULT_ZOOM' before initialization"
+    const MIN_ZOOM = 0.1; // 10%
+    const MAX_ZOOM = 20.0; // 2000% - Set the maximum allowed zoom
+    const DEFAULT_ZOOM = MAX_ZOOM; // Set the default zoom to 2000%
+
+    // Use the newly defined DEFAULT_ZOOM for initial state
+    const [zoom, setZoom] = useState(DEFAULT_ZOOM);
     const [pan, setPan] = useState({ x: 0, y: 0 });
     const [isDragging, setIsDragging] = useState(false);
     const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
@@ -24,8 +31,10 @@ const MermaidDiagram = ({ chart, id }) => {
             setIsLoading(true);
             setError(null);
             setSvgContent(''); // Clear previous content
+
             // Reset zoom and pan when new chart loads
-            setZoom(2); // Default to 200%
+            // Set to the new default of 2000%
+            setZoom(DEFAULT_ZOOM);
             setPan({ x: 0, y: 0 });
 
             try {
@@ -91,15 +100,18 @@ const MermaidDiagram = ({ chart, id }) => {
 
     // Zoom functions
     const zoomIn = () => {
-        setZoom(prev => Math.min(prev + 0.2, 20)); // Max zoom 2000%
+        // Use MAX_ZOOM constant
+        setZoom(prev => Math.min(prev + 0.2, MAX_ZOOM));
     };
 
     const zoomOut = () => {
-        setZoom(prev => Math.max(prev - 0.2, 0.2));
+        // Use MIN_ZOOM constant
+        setZoom(prev => Math.max(prev - 0.2, MIN_ZOOM));
     };
 
     const resetView = () => {
-        setZoom(2); // Reset to 200%
+        // Use DEFAULT_ZOOM constant (2000%)
+        setZoom(DEFAULT_ZOOM);
         setPan({ x: 0, y: 0 });
     };
 
@@ -107,7 +119,8 @@ const MermaidDiagram = ({ chart, id }) => {
     const handleWheel = (e) => {
         e.preventDefault();
         const delta = e.deltaY > 0 ? -0.1 : 0.1;
-        setZoom(prev => Math.min(Math.max(prev + delta, 0.2), 20)); // Max zoom 2000%
+        // Use MIN_ZOOM and MAX_ZOOM constants
+        setZoom(prev => Math.min(Math.max(prev + delta, MIN_ZOOM), MAX_ZOOM));
     };
 
     // Pan functionality
@@ -185,7 +198,7 @@ const MermaidDiagram = ({ chart, id }) => {
                 <div className="absolute top-4 right-4 z-10 flex gap-2 bg-gray-800/90 backdrop-blur-sm rounded-lg p-2 border border-gray-600">
                     <button
                         onClick={zoomOut}
-                        disabled={zoom <= 0.2}
+                        disabled={zoom <= MIN_ZOOM}
                         className="p-2 text-gray-300 hover:text-white hover:bg-gray-700 rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                         title="Zoom Out"
                     >
@@ -194,7 +207,7 @@ const MermaidDiagram = ({ chart, id }) => {
 
                     <button
                         onClick={zoomIn}
-                        disabled={zoom >= 20}
+                        disabled={zoom >= MAX_ZOOM}
                         className="p-2 text-gray-300 hover:text-white hover:bg-gray-700 rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                         title="Zoom In"
                     >

@@ -1,6 +1,6 @@
 1. To start a Celery Worker (aitm Module):
 
-    python -m celery -A AIToolSuite_prod worker -l info
+    python -m celery -A AIToolSuite_prod worker -l info -P solo
 
 2. To start a Celery Beat (aitm Module):
 

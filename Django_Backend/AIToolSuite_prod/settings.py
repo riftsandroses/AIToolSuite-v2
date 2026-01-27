@@ -31,7 +31,7 @@ SECRET_KEY = 'django-insecure-ryl-i5*s=s9o$l_=(okg1r^3fbp=kl3zxvl_d4xh!8u#%iz2k%
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['dev.aitoolsuite.xyz', 'localhost', '127.0.0.1']
+ALLOWED_HOSTS = ['api.aitoolsuite.xyz', 'localhost', '127.0.0.1','aitoolsuite.xyz']
 
 
 # Application definition
@@ -88,8 +88,8 @@ CORS_ALLOWED_ORIGINS = [
     'http://127.0.0.1:8000',
     'http://127.0.0.1:3000', 
     'http://127.0.0.1:3001', 
-    'http://dev.aitoolsuite.xyz',
-    'https://dev.aitoolsuite.xyz',
+    'https://aitoolsuite.xyz',
+    'https://api.aitoolsuite.xyz',
     'http://192.168.10.19.sslip.io:3000',
     'http://172.20.10.2.sslip.io:3000',
 ]

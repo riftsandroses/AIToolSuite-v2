@@ -12,7 +12,7 @@ __pycache__/
 
 # Django specific
 *.sqlite3
-/django_backend/media/   # User-uploaded files
+/Django_Backend/media/   # User-uploaded files
 
 # Environment Files (CRITICAL for security)
 /django_backend/.env
@@ -40,3 +40,30 @@ __pycache__/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+
+# Django uploaded/generated media
+Django_Backend/media/
+
+# If you want to be more granular instead of ignoring all media, use:
+# Django_Backend/media/**/*.png
+# Django_Backend/media/**/*.jpg
+# Django_Backend/media/**/*.jpeg
+# Django_Backend/media/**/*.pdf
+# Django_Backend/media/**/*.docx
+# Django_Backend/media/**/*.json
+# Django_Backend/media/**/*.jsonl
+# Django_Backend/media/**/*.yaml
+# Django_Backend/media/**/*.html
+# Django_Backend/media/**/*.txt
+
+# Threat model FAISS indexes (generated data)
+Django_Backend/threat_model/faiss_indexes/
+
+# FAISS / ML artifacts (extra safety)
+*.faiss
+*.pkl
+
+# Postman exports
+*.postman_collection.json
+*.postman_environment.json

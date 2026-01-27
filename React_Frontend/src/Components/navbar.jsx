@@ -303,7 +303,7 @@ export default function Navbar() {
           },
         }}
       >
-        Risk Assessment Lab
+        Architecture Risk Assessment Lab
       </Button>
 
       <Button

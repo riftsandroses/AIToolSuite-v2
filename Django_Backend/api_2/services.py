@@ -22,7 +22,8 @@ from django.conf import settings
 from django.contrib.auth.models import User
 from django.db import transaction, connection
 from django.db.models import Count, Avg, Q
-from django.utils import timezone as django_timezone
+from django.utils import timezone
+
 from openai import OpenAI
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -232,6 +233,8 @@ class APISecurityScannerTC1:
             
             # Start scanning APIs
             self._scan_apis(apis, scan_id)
+            
+            session.refresh_from_db()
             
             # Update session status
             session.status = 'completed'

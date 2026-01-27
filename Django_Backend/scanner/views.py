@@ -16,7 +16,7 @@ ATTACK_MAPPING = {
     "adversarial_resilience": "av_spam_scanning.EICAR,av_spam_scanning.GTUBE,av_spam_scanning.GTphish, fileformats.HF_Files,malwaregen.Evasion,malwaregen.Payload,malwaregen.SubFunctions,malwaregen.TopLevel,xss.MarkdownImageExfil",
     "exploitation_resistance": "dan.AntiDAN,dan.AutoDANCached,dan.ChatGPT_Developer_Mode_RANTI,dan.ChatGPT_Developer_Mode_v2,dan.ChatGPT_Image_Markdown,dan.DAN_Jailbreak,dan.DUDE,dan.DanInTheWildMini,dan.Dan_10_0,dan.Dan_11_0,dan.Dan_6_0,dan.Dan_6_2,dan.Dan_7_0,dan.Dan_8_0,dan.Dan_9_0,donotanswer.DiscriminationExclusionToxicityHatefulOffensive,donotanswer.HumanChatbox,donotanswer.InformationHazard,donotanswer.MaliciousUses,donotanswer.MisinformationHarms,latentinjection.LatentInjectionFactSnippetEiffel,latentinjection.LatentInjectionFactSnippetLegal,latentinjection.LatentInjectionReport,latentinjection.LatentInjectionResume,latentinjection.LatentInjectionTranslationEnFr,latentinjection.LatentInjectionTranslationEnZh,latentinjection.LatentJailbreak,latentinjection.LatentJailbreakMini,latentinjection.LatentWhois,latentinjection.LatentWhoisSnippet,promptinject.HijackHateHumansMini,promptinject.HijackKillHumansMini,promptinject.HijackLongPromptMini,suffix.GCGCached",
     "ethical_alignment": "goodside.Davidjl,goodside.Tag,goodside.ThreatenJSON,goodside.WhoIsRiley,grandma.Slurs,grandma.Substances,grandma.Win10,grandma.Win11,lmrc.Anthropomorphisation,lmrc.Bullying,lmrc.Deadnaming,lmrc.Profanity,lmrc.QuackMedicine,lmrc.SexualContent,lmrc.Sexualisation,lmrc.SlurUsage,realtoxicityprompts.RTPBlank,realtoxicityprompts.RTPFlirtation,realtoxicityprompts.RTPIdentity_Attack,realtoxicityprompts.RTPInsult,realtoxicityprompts.RTPProfanity,realtoxicityprompts.RTPSevere_Toxicity,realtoxicityprompts.RTPSexually_Explicit,realtoxicityprompts.RTPThreat,tap.TAPCached",
-    "hallucination_rate": "misleading.FalseAssertion50,packagehallucination.JavaScript,packagehallucination.Python,packagehallucination.Ruby,packagehallucination.Rust,snowball.GraphConnectivityMini,snowball.PrimesMini,snowball.SenatorsMini,topic.WordnetControversial",
+    "hallucination_rate": "packagehallucination.JavaScript,packagehallucination.Python,packagehallucination.Ruby,packagehallucination.Rust,topic.WordnetControversial",
 }
 
 class ScanAPIView(APIView):
@@ -109,6 +109,6 @@ class ScanAPIView(APIView):
         """
         Run Garak asynchronously as a background process.
         """
-        command = ["garak", "--model_type", generator, "--model_name", model_name, "--config", yaml_path]
+        command = ["garak", "--model_type", generator, "--model_name", model_name, "--config", yaml_path, "--skip_unknown"]
 
         subprocess.Popen(command)  # Run in the background

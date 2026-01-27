@@ -14,6 +14,10 @@ class Command(BaseCommand):
         try:
             # Read data from Excel file
             df = pd.read_excel(excel_file)
+
+            print("RAW COLUMNS:")
+            for c in df.columns:
+                print(repr(c))
             
             # Clear existing data
             ProbeControlMapping.objects.all().delete()
@@ -21,7 +25,7 @@ class Command(BaseCommand):
             # Import new data
             for _, row in df.iterrows():
                 ProbeControlMapping.objects.create(
-                    probe_name=row['Probe Name'],
+                    probe_name=row['Name'],
                     control_title=row['Control Title'],
                     control_category=row['Control Category'],
                     control_description=row['Control Description'],

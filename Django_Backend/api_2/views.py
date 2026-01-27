@@ -142,7 +142,7 @@ class ScanStatusViewTC1(APIView):
         try:
             session = ScanSessionTC1.objects.get(scan_id=scan_id)
             serializer = ScanSessionSerializerTC1(session)
-            
+            session.refresh_from_db()
             # Add real-time progress data
             response_data = serializer.data
             response_data['real_time_progress'] = {
@@ -155,7 +155,7 @@ class ScanStatusViewTC1(APIView):
         except ScanSessionTC1.DoesNotExist:
             return Response(
                 {"error": f"Scan session not found for scan_id: {scan_id}"},
-                status=status.HTTP_404_NOT_FOUND
+                status=status.HTTP_204_NO_CONTENT
             )
         except Exception as e:
             logger.error(f"Error getting scan status: {str(e)}")
@@ -261,7 +261,7 @@ class VulnerabilitySummaryViewTC1(APIView):
                 if not summaries.exists():
                     return Response(
                         {"error": f"No vulnerability summary found for scan_id: {scan_id}"},
-                        status=status.HTTP_404_NOT_FOUND
+                        status=status.HTTP_200_OK
                     )
             else:
                 # Get summary for all scans (last 30 days)
@@ -362,7 +362,7 @@ class ScanCancelViewTC1(APIView):
         except ScanSessionTC1.DoesNotExist:
             return Response(
                 {"error": f"Scan session not found for scan_id: {scan_id}"},
-                status=status.HTTP_404_NOT_FOUND
+                status=status.HTTP_200_OK
             )
         except Exception as e:
             logger.error(f"Error cancelling scan: {str(e)}")
