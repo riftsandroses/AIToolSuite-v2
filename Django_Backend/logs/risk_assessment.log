@@ -1,0 +1,145 @@
+INFO 2026-01-27 16:41:01,913 signals New assessment created: ASSESS-B676F1A3FF77
+INFO 2026-01-27 16:47:41,519 signals New assessment created: ASSESS-518068B07D4A
+INFO 2026-01-27 16:49:49,316 signals Assessment ASSESS-B676F1A3FF77 updated. Status: PROCESSING
+ERROR 2026-01-27 16:49:49,552 tasks Error conducting assessment ASSESS-B676F1A3FF77: error returned from database: (code: 14) unable to open database file
+INFO 2026-01-27 16:49:49,608 signals Assessment ASSESS-B676F1A3FF77 updated. Status: FAILED
+INFO 2026-01-27 16:50:24,707 signals New assessment created: ASSESS-1EDC2ED8E397
+INFO 2026-01-27 16:50:24,807 signals Assessment ASSESS-1EDC2ED8E397 updated. Status: PROCESSING
+ERROR 2026-01-27 16:50:25,101 tasks Error conducting assessment ASSESS-1EDC2ED8E397: Could not connect to tenant default_tenant. Are you sure it exists?
+INFO 2026-01-27 16:50:25,103 signals Assessment ASSESS-1EDC2ED8E397 updated. Status: FAILED
+ERROR 2026-01-27 16:54:48,407 tasks Error processing document 3: Could not connect to tenant default_tenant. Are you sure it exists?
+INFO 2026-01-27 16:55:25,134 signals Assessment ASSESS-1EDC2ED8E397 updated. Status: PROCESSING
+ERROR 2026-01-27 16:55:25,318 tasks Error conducting assessment ASSESS-1EDC2ED8E397: Could not connect to tenant default_tenant. Are you sure it exists?
+INFO 2026-01-27 16:55:25,320 signals Assessment ASSESS-1EDC2ED8E397 updated. Status: FAILED
+ERROR 2026-01-27 16:55:48,658 tasks Error processing document 3: Could not connect to tenant default_tenant. Are you sure it exists?
+INFO 2026-01-27 16:56:12,763 signals New assessment created: ASSESS-D70EBDAC9670
+INFO 2026-01-27 16:56:12,826 signals Assessment ASSESS-D70EBDAC9670 updated. Status: PROCESSING
+ERROR 2026-01-27 16:56:13,132 tasks Error conducting assessment ASSESS-D70EBDAC9670: Could not connect to tenant default_tenant. Are you sure it exists?
+INFO 2026-01-27 16:56:13,174 signals Assessment ASSESS-D70EBDAC9670 updated. Status: FAILED
+ERROR 2026-01-27 17:00:39,157 tasks Document 3 not found
+ERROR 2026-01-27 17:01:00,497 tasks Error processing document 4: error returned from database: (code: 14) unable to open database file
+ERROR 2026-01-27 17:01:13,226 tasks Assessment ASSESS-D70EBDAC9670 not found
+INFO 2026-01-27 17:01:35,570 signals New assessment created: ASSESS-C4AD2F527053
+INFO 2026-01-27 17:01:35,602 signals Assessment ASSESS-C4AD2F527053 updated. Status: PROCESSING
+ERROR 2026-01-27 17:01:35,905 tasks Error conducting assessment ASSESS-C4AD2F527053: Could not connect to tenant default_tenant. Are you sure it exists?
+INFO 2026-01-27 17:01:35,967 signals Assessment ASSESS-C4AD2F527053 updated. Status: FAILED
+ERROR 2026-01-27 17:02:00,771 tasks Error processing document 4: Could not connect to tenant default_tenant. Are you sure it exists?
+ERROR 2026-01-27 17:04:01,018 tasks Error processing document 4: Could not connect to tenant default_tenant. Are you sure it exists?
+ERROR 2026-01-27 17:05:13,964 tasks Error processing document 5: error returned from database: (code: 14) unable to open database file
+ERROR 2026-01-27 17:06:14,370 tasks Error processing document 5: Could not connect to tenant default_tenant. Are you sure it exists?
+INFO 2026-01-27 17:06:36,010 signals Assessment ASSESS-C4AD2F527053 updated. Status: PROCESSING
+ERROR 2026-01-27 17:06:36,192 tasks Error conducting assessment ASSESS-C4AD2F527053: Could not connect to tenant default_tenant. Are you sure it exists?
+INFO 2026-01-27 17:06:36,196 signals Assessment ASSESS-C4AD2F527053 updated. Status: FAILED
+ERROR 2026-01-27 17:06:52,454 tasks Error processing document 6: Could not connect to tenant default_tenant. Are you sure it exists?
+ERROR 2026-01-27 17:07:22,410 tasks Error processing document 7: error returned from database: (code: 14) unable to open database file
+ERROR 2026-01-27 17:07:52,715 tasks Error processing document 6: Could not connect to tenant default_tenant. Are you sure it exists?
+ERROR 2026-01-27 17:08:01,249 tasks Error processing document 4: Could not connect to tenant default_tenant. Are you sure it exists?
+ERROR 2026-01-27 17:08:14,642 tasks Error processing document 5: Could not connect to tenant default_tenant. Are you sure it exists?
+ERROR 2026-01-27 17:08:22,674 tasks Error processing document 7: Could not connect to tenant default_tenant. Are you sure it exists?
+ERROR 2026-01-27 17:09:53,091 tasks Error processing document 6: Could not connect to tenant default_tenant. Are you sure it exists?
+ERROR 2026-01-27 17:10:23,043 tasks Error processing document 7: Could not connect to tenant default_tenant. Are you sure it exists?
+ERROR 2026-01-27 17:12:15,004 tasks Error processing document 5: Could not connect to tenant default_tenant. Are you sure it exists?
+ERROR 2026-01-27 17:13:53,465 tasks Error processing document 6: Could not connect to tenant default_tenant. Are you sure it exists?
+ERROR 2026-01-27 17:14:23,403 tasks Error processing document 7: Could not connect to tenant default_tenant. Are you sure it exists?
+ERROR 2026-01-27 18:11:09,757 test_rag RAG test failed: error returned from database: (code: 14) unable to open database file
+Traceback (most recent call last):
+  File "C:\Users\kpmga\Videos\AIToolSuite(all)\Django_Backend\arch_risk_assessment\management\commands\test_rag.py", line 16, in handle
+    rag = RAGService()
+          ^^^^^^^^^^^^
+  File "C:\Users\kpmga\Videos\AIToolSuite(all)\Django_Backend\arch_risk_assessment\rag_service.py", line 28, in __init__
+    self.chroma_client = chromadb.PersistentClient(
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kpmga\Videos\AIToolSuite(all)\Django_Backend\AiToolSuite\Lib\site-packages\chromadb\__init__.py", line 216, in PersistentClient
+    return ClientCreator(tenant=tenant, database=database, settings=settings)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kpmga\Videos\AIToolSuite(all)\Django_Backend\AiToolSuite\Lib\site-packages\chromadb\api\client.py", line 66, in __init__
+    super().__init__(settings=settings)
+  File "C:\Users\kpmga\Videos\AIToolSuite(all)\Django_Backend\AiToolSuite\Lib\site-packages\chromadb\api\shared_system_client.py", line 22, in __init__
+    SharedSystemClient._create_system_if_not_exists(self._identifier, settings)
+  File "C:\Users\kpmga\Videos\AIToolSuite(all)\Django_Backend\AiToolSuite\Lib\site-packages\chromadb\api\shared_system_client.py", line 35, in _create_system_if_not_exists
+    new_system.start()
+  File "C:\Users\kpmga\Videos\AIToolSuite(all)\Django_Backend\AiToolSuite\Lib\site-packages\chromadb\config.py", line 475, in start
+    component.start()
+  File "C:\Users\kpmga\Videos\AIToolSuite(all)\Django_Backend\AiToolSuite\Lib\site-packages\chromadb\api\rust.py", line 121, in start
+    self.bindings = chromadb_rust_bindings.Bindings(
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+chromadb.errors.InternalError: error returned from database: (code: 14) unable to open database file
+ERROR 2026-01-27 18:18:08,470 tasks Error processing document 8: Database [rag_database] not found. Are you sure it exists?
+ERROR 2026-01-27 18:19:10,814 tasks Error processing document 8: Database [rag_database] not found. Are you sure it exists?
+ERROR 2026-01-27 18:20:37,747 test_rag RAG test failed: Database [rag_database] not found. Are you sure it exists?
+Traceback (most recent call last):
+  File "C:\Users\kpmga\Videos\AIToolSuite(all)\Django_Backend\arch_risk_assessment\management\commands\test_rag.py", line 16, in handle
+    rag = RAGService()
+          ^^^^^^^^^^^^
+  File "C:\Users\kpmga\Videos\AIToolSuite(all)\Django_Backend\arch_risk_assessment\rag_service.py", line 41, in __init__
+    self.chroma_client = chromadb.PersistentClient(
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kpmga\Videos\AIToolSuite(all)\Django_Backend\AiToolSuite\Lib\site-packages\chromadb\__init__.py", line 216, in PersistentClient
+    return ClientCreator(tenant=tenant, database=database, settings=settings)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kpmga\Videos\AIToolSuite(all)\Django_Backend\AiToolSuite\Lib\site-packages\chromadb\api\client.py", line 101, in __init__
+    self._validate_tenant_database(tenant=self.tenant, database=self.database)
+  File "C:\Users\kpmga\Videos\AIToolSuite(all)\Django_Backend\AiToolSuite\Lib\site-packages\chromadb\api\client.py", line 492, in _validate_tenant_database
+    self._admin_client.get_database(name=database, tenant=tenant)
+  File "C:\Users\kpmga\Videos\AIToolSuite(all)\Django_Backend\AiToolSuite\Lib\site-packages\chromadb\api\client.py", line 514, in get_database
+    return self._server.get_database(name=name, tenant=tenant)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kpmga\Videos\AIToolSuite(all)\Django_Backend\AiToolSuite\Lib\site-packages\chromadb\api\rust.py", line 140, in get_database
+    database = self.bindings.get_database(name, tenant)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+chromadb.errors.NotFoundError: Database [rag_database] not found. Are you sure it exists?
+ERROR 2026-01-27 18:21:11,202 tasks Error processing document 8: Database [rag_database] not found. Are you sure it exists?
+ERROR 2026-01-29 13:43:29,918 tasks Error processing document 8: Database [rag_database] not found. Are you sure it exists?
+ERROR 2026-01-29 13:53:36,796 test_rag RAG test failed: 'Client' object has no attribute 'get_tenant'
+Traceback (most recent call last):
+  File "C:\Users\kpmga\Videos\AIToolSuite(all)\Django_Backend\arch_risk_assessment\management\commands\test_rag.py", line 16, in handle
+    rag = RAGService()
+          ^^^^^^^^^^^^
+  File "C:\Users\kpmga\Videos\AIToolSuite(all)\Django_Backend\arch_risk_assessment\rag_service.py", line 42, in __init__
+    self._ensure_chroma_tenant_and_db()
+  File "C:\Users\kpmga\Videos\AIToolSuite(all)\Django_Backend\arch_risk_assessment\rag_service.py", line 73, in _ensure_chroma_tenant_and_db
+    admin_client.get_tenant(self.tenant)
+    ^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'Client' object has no attribute 'get_tenant'. Did you mean: 'set_tenant'?
+ERROR 2026-01-29 18:58:19,057 tasks Error processing document 9: 'Client' object has no attribute 'get_tenant'
+ERROR 2026-01-29 18:59:19,366 tasks Error processing document 9: 'Client' object has no attribute 'get_tenant'
+ERROR 2026-01-29 19:01:19,625 tasks Error processing document 9: 'Client' object has no attribute 'get_tenant'
+ERROR 2026-01-29 19:05:19,923 tasks Error processing document 9: 'Client' object has no attribute 'get_tenant'
+ERROR 2026-01-29 19:10:00,907 tasks Error processing document 10: Database [rag_database] not found. Are you sure it exists?
+ERROR 2026-01-29 19:11:01,188 tasks Error processing document 10: Database [rag_database] not found. Are you sure it exists?
+ERROR 2026-01-29 19:13:01,575 tasks Error processing document 10: Database [rag_database] not found. Are you sure it exists?
+ERROR 2026-01-29 19:13:31,331 tasks Error processing document 11: Database [rag_database] not found. Are you sure it exists?
+INFO 2026-01-29 19:14:27,172 signals New assessment created: ASSESS-06DE80D9A0DA
+INFO 2026-01-29 19:14:27,200 signals Assessment ASSESS-06DE80D9A0DA updated. Status: PROCESSING
+ERROR 2026-01-29 19:14:27,382 tasks Error conducting assessment ASSESS-06DE80D9A0DA: Database [rag_database] not found. Are you sure it exists?
+INFO 2026-01-29 19:14:27,384 signals Assessment ASSESS-06DE80D9A0DA updated. Status: FAILED
+ERROR 2026-01-29 19:14:31,577 tasks Error processing document 11: Database [rag_database] not found. Are you sure it exists?
+ERROR 2026-01-29 19:16:31,960 tasks Error processing document 11: error returned from database: (code: 14) unable to open database file
+ERROR 2026-01-29 19:17:01,819 tasks Error processing document 10: Could not connect to tenant default_tenant. Are you sure it exists?
+INFO 2026-01-29 19:19:27,466 signals Assessment ASSESS-06DE80D9A0DA updated. Status: PROCESSING
+ERROR 2026-01-29 19:19:27,641 tasks Error conducting assessment ASSESS-06DE80D9A0DA: Could not connect to tenant default_tenant. Are you sure it exists?
+INFO 2026-01-29 19:19:27,644 signals Assessment ASSESS-06DE80D9A0DA updated. Status: FAILED
+ERROR 2026-01-29 19:20:32,202 tasks Error processing document 11: Could not connect to tenant default_tenant. Are you sure it exists?
+INFO 2026-01-29 19:24:22,101 rag_service ChromaDB initialized at: C:\ProgramData\chroma_db
+INFO 2026-01-29 19:24:22,145 rag_service Created new collection: app_10
+INFO 2026-01-29 19:24:24,074 rag_service Added 6 chunks to collection app_10
+INFO 2026-01-29 19:24:24,076 tasks Processed document 12: 6 chunks added
+INFO 2026-01-29 19:24:58,617 signals New assessment created: ASSESS-3693E03CD90A
+INFO 2026-01-29 19:24:58,647 signals Assessment ASSESS-3693E03CD90A updated. Status: PROCESSING
+INFO 2026-01-29 19:24:58,857 rag_service ChromaDB initialized at: C:\ProgramData\chroma_db
+INFO 2026-01-29 19:28:50,217 signals Assessment ASSESS-3693E03CD90A updated. Status: COMPLETED
+ERROR 2026-01-29 19:28:50,219 risk_engine Error conducting assessment: null value in column "version" of relation "arch_risk_assessment_vulnerablecomponent" violates not-null constraint
+DETAIL:  Failing row contains (2, Django, null, CVE-2007-0404, 7.5, HIGH, bin/compile-messages.py in Django 0.95 does not quote argument s..., f, [], , 7).
+INFO 2026-01-29 19:28:50,222 signals Assessment ASSESS-3693E03CD90A updated. Status: FAILED
+ERROR 2026-01-29 19:28:50,222 tasks Error conducting assessment ASSESS-3693E03CD90A: null value in column "version" of relation "arch_risk_assessment_vulnerablecomponent" violates not-null constraint
+DETAIL:  Failing row contains (2, Django, null, CVE-2007-0404, 7.5, HIGH, bin/compile-messages.py in Django 0.95 does not quote argument s..., f, [], , 7).
+INFO 2026-01-29 19:28:50,225 signals Assessment ASSESS-3693E03CD90A updated. Status: FAILED
+INFO 2026-02-02 12:26:17,915 signals Assessment ASSESS-3693E03CD90A updated. Status: PROCESSING
+INFO 2026-02-02 12:26:18,257 rag_service ChromaDB initialized at: C:\ProgramData\chroma_db
+ERROR 2026-02-02 12:26:32,054 risk_engine Error analyzing technical risks: Expecting value: line 1 column 1 (char 0)
+ERROR 2026-02-02 12:26:37,343 risk_engine Error analyzing functional risks: Expecting value: line 1 column 1 (char 0)
+ERROR 2026-02-02 12:26:50,715 risk_engine Error analyzing operational risks: Expecting value: line 1 column 1 (char 0)
+ERROR 2026-02-02 12:27:09,797 risk_engine Error analyzing compliance risks: Expecting value: line 1 column 1 (char 0)
+ERROR 2026-02-02 12:27:21,164 risk_engine Error analyzing governance risks: Expecting value: line 1 column 1 (char 0)
+INFO 2026-02-02 12:29:55,850 signals Assessment ASSESS-3693E03CD90A updated. Status: COMPLETED
+INFO 2026-02-02 12:29:55,878 tasks Completed assessment ASSESS-3693E03CD90A: Score 10

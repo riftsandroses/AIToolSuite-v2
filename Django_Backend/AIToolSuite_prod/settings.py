@@ -54,9 +54,7 @@ INSTALLED_APPS = [
     'login',
     'homepage',
     'scanner',
-    'aitm',
     'scanner_results',
-    'risk_assessment',
     'connector',
     'api_orch',
     'api_custom_testing',
@@ -66,7 +64,8 @@ INSTALLED_APPS = [
     'api_7',
     'api_8',
     'api_9',
-    'threat_model'
+    'threat_model',
+    'architecture_assessment'
 ]
 
 MIDDLEWARE = [
@@ -196,9 +195,11 @@ MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 # File upload settings
-FILE_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024  # 5MB
-DATA_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024  # 5MB
+FILE_UPLOAD_MAX_MEMORY_SIZE = 40 * 1024 * 1024  # 10MB
+DATA_UPLOAD_MAX_MEMORY_SIZE = 40 * 1024 * 1024  # 10MB
 
+# ChromaDB Configuration
+CHROMADB_PATH = os.path.join(BASE_DIR, 'chroma_db')
 
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),  # Update to 15 minutes in production
@@ -238,6 +239,11 @@ REST_FRAMEWORK = {
         'rest_framework.throttling.AnonRateThrottle',
         'rest_framework.throttling.UserRateThrottle'
     ),
+    'DEFAULT_PARSER_CLASSES': [
+        'rest_framework.parsers.JSONParser',
+        'rest_framework.parsers.MultiPartParser',
+        'rest_framework.parsers.FormParser',
+    ],
     'DEFAULT_THROTTLE_RATES': {
         'anon': '100/hour',
         'user': '1000/hour'
@@ -247,12 +253,14 @@ REST_FRAMEWORK = {
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
+
     'formatters': {
         'verbose': {
             'format': '{levelname} {asctime} {module} {message}',
             'style': '{',
         },
     },
+
     'handlers': {
         'file': {
             'level': 'INFO',
@@ -261,8 +269,9 @@ LOGGING = {
             'formatter': 'verbose',
         },
         'console': {
-                'level': 'DEBUG',
-                'class': 'logging.StreamHandler',
+            'level': 'DEBUG',
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
         },
         'api6_file': {
             'level': 'INFO',
@@ -270,7 +279,14 @@ LOGGING = {
             'filename': 'logs/api6_vulnerability_tests.log',
             'formatter': 'verbose',
         },
+        'risk_assessment_file': {
+            'level': 'INFO',
+            'class': 'logging.FileHandler',
+            'filename': 'logs/risk_assessment.log',
+            'formatter': 'verbose',
+        },
     },
+
     'loggers': {
         'scanner': {
             'handlers': ['file'],
@@ -289,7 +305,6 @@ LOGGING = {
             'level': 'INFO',
             'propagate': True,
         },
-
         'api_9.views': {
             'handlers': ['file', 'console'],
             'level': 'INFO',
@@ -305,6 +320,7 @@ LOGGING = {
             'level': 'INFO',
             'propagate': True,
         },
+
         'api_4': {
             'handlers': ['file', 'console'],
             'level': 'INFO',
@@ -320,23 +336,33 @@ LOGGING = {
             'level': 'INFO',
             'propagate': True,
         },
+
         'api_8': {
             'handlers': ['file', 'console'],
             'level': 'INFO',
             'propagate': True,
         },
+
         'api_2': {
             'handlers': ['file', 'console'],
             'level': 'INFO',
             'propagate': True,
         },
+
         'api_6': {
             'handlers': ['api6_file'],
             'level': 'INFO',
             'propagate': True,
         },
+
+        'architecture_assessment': {
+            'handlers': ['console', 'file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
     },
 }
+
 
 # For Redis
 #CELERY_BROKER_URL = 'redis://localhost:6379/0'
@@ -364,10 +390,6 @@ CELERY_BEAT_SCHEDULE = {
     'refresh-scan-tokens': {
         'task': 'api_orch.tasks.refresh_scan_tokens',
         'schedule': crontab(minute='*/10'),  # Run every 10 minutes
-    },
-    'cleanup-expired-containers': {
-        'task': 'aitm.tasks.cleanup_expired_containers',
-        'schedule': 3600.0,
     },
     'cleanup-old-scans': {
         'task': 'api_8.tasks.cleanup_old_scans_tc2',
@@ -409,9 +431,10 @@ HCAPTCHA_SECRET_KEY = os.environ.get('HCAPTCHA_SECRET_KEY')
 
 # OpenAI API Configuration
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") # Replace with os.getenv("OPENAI_API_KEY") in production
+OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-4o')
 OPENAI_RATE_LIMIT = {
     'requests_per_minute': 60,
-    'tokens_per_minute': 40000,
+    'tokens_per_minute': 50000,
 }
 
 # API-4 TC-3 File upload scanner specific settings
@@ -585,3 +608,11 @@ API_6_SETTINGS = {
 }
 ASYNC_TIMEOUT = 300  # 5 minutes default timeout for scans
 MAX_CONCURRENT_TESTS = 10  # Maximum concurrent vulnerability tests
+
+# ARCHITECTURE ASSESSMENT - Create necessary directories
+os.makedirs(MEDIA_ROOT, exist_ok=True)
+os.makedirs(os.path.join(MEDIA_ROOT, 'architecture_diagrams'), exist_ok=True)
+os.makedirs(os.path.join(MEDIA_ROOT, 'architecture_files'), exist_ok=True)
+os.makedirs(os.path.join(MEDIA_ROOT, 'remediation_evidence'), exist_ok=True)
+os.makedirs(os.path.join(MEDIA_ROOT, 'reports'), exist_ok=True)
+os.makedirs(CHROMADB_PATH, exist_ok=True)

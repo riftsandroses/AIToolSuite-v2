@@ -185,7 +185,7 @@ export default function Navbar() {
         }}
       >
         <Link to="/llm-vulnerability-scanner-report" style={{ textDecoration: "none", color: "inherit" }}>
-          <MenuItem onClick={handleInsightsLabMenuClose}>LLM Vulnerability Report</MenuItem>
+          <MenuItem onClick={handleInsightsLabMenuClose}>AI Attack Report</MenuItem>
         </Link>
       </Menu>
 
@@ -285,7 +285,7 @@ export default function Navbar() {
         }}
       >
         <Link to="/llm-vulnerability-scanner" style={{ textDecoration: "none", color: "inherit" }}>
-          <MenuItem onClick={handleAttackLabMenuClose}>LLM Vulnerability Scanner</MenuItem>
+          <MenuItem onClick={handleAttackLabMenuClose}>AI Attack Tester</MenuItem>
         </Link>
       </Menu>
 
@@ -439,7 +439,7 @@ export default function Navbar() {
                 onClick={handleMenuItemClick(() => { })}
               >
                 <ListItemText
-                  primary="LLM Vulnerability Report"
+                  primary="AI Attack Report"
                   primaryTypographyProps={{ fontSize: "0.9rem" }}
                 />
               </ListItemButton>
@@ -521,7 +521,7 @@ export default function Navbar() {
                 onClick={handleMenuItemClick(() => { })}
               >
                 <ListItemText
-                  primary="LLM Vulnerability Scanner"
+                  primary="AI Attack Tester"
                   primaryTypographyProps={{ fontSize: "0.9rem" }}
                 />
               </ListItemButton>

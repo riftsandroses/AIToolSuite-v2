@@ -17,6 +17,11 @@ __pycache__/
 # Environment Files (CRITICAL for security)
 /django_backend/.env
 /django_backend/.DS_Store  # macOS specific
+/django_backend/chroma_db/*
+/django_backend/*.log
+/django_backend/*.bak
+/django_backend/*.dat
+/django_backend/*.dir
 
 # Local settings file (if you use one to override sensitive production settings)
 /django_backend/*/local_settings.py
