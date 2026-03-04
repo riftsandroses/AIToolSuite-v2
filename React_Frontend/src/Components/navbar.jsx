@@ -115,6 +115,11 @@ export default function Navbar() {
     setMobileOpen(false);
   };
 
+  const handleArchitectureAssessmentClick = () => {
+    navigate("/architecture-assessment");
+    setMobileOpen(false);
+  };
+
   const handleLoginClick = () => {
     navigate("/login");
     setMobileOpen(false);
@@ -321,6 +326,23 @@ export default function Navbar() {
         }}
       >
         Threat Model
+      </Button>
+
+      <Button
+        color="inherit"
+        onClick={handleArchitectureAssessmentClick}
+        sx={{
+          mr: 2,
+          textTransform: "none",
+          fontWeight: 500,
+          fontSize: "0.95rem",
+          "&:hover": {
+            backgroundColor: "rgba(255, 255, 255, 0.08)",
+            transition: "all 0.3s ease",
+          },
+        }}
+      >
+        Architecture Assessment
       </Button>
 
       {/* **NEW**: API Pentest Button */}
@@ -565,6 +587,27 @@ export default function Navbar() {
             >
               <ListItemText
                 primary="Threat Model"
+                primaryTypographyProps={{ fontWeight: 500 }}
+              />
+            </ListItemButton>
+          </Link>
+        </ListItem>
+
+        {/* Architecture Assessment */}
+        <ListItem disablePadding>
+          <Link to="/architecture-assessment" style={{ textDecoration: "none", color: "inherit" }}>
+            <ListItemButton
+              sx={{
+                textAlign: "left",
+                py: 1.5,
+                "&:hover": {
+                  backgroundColor: "rgba(144, 202, 249, 0.08)",
+                },
+              }}
+              onClick={handleMenuItemClick(handleArchitectureAssessmentClick)}
+            >
+              <ListItemText
+                primary="Architecture Assessment"
                 primaryTypographyProps={{ fontWeight: 500 }}
               />
             </ListItemButton>

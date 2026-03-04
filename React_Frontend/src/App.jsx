@@ -19,6 +19,7 @@ import EnvironmentVariablesPage from "./Pages/APIPenTest/EnvironmentVariablesPag
 import InitializeScanPage from "./Pages/APIPenTest/InitializeScanPage";
 import AllThreatModelPage from "./Pages/ThreatModel/AllThreatModelPage";
 import ThreatModelAssessment from "./Pages/ThreatModel/ThreatModelAssessment";
+import ArchitectureAssessmentPage from "./Pages/ArchitectureAssessment/ArchitectureAssessmentPage";
 import API22023TC1 from "./Components/APIPentest/TestCasePages/API2/API22023TC1";
 import API22023TC2 from "./Components/APIPentest/TestCasePages/API2/API22023TC2";
 import API22023TC3 from "./Components/APIPentest/TestCasePages/API2/API22023TC3";
@@ -142,6 +143,21 @@ function App() {
           <Route path="/dll" element={
             <UserAuth>
               <DLLScannerPage />
+            </UserAuth>
+          } />
+          <Route path="/architecture-assessment" element={
+            <UserAuth>
+              <ArchitectureAssessmentPage />
+            </UserAuth>
+          } />
+          <Route path="/architecture-assessment/create" element={
+            <UserAuth>
+              <ArchitectureAssessmentPage />
+            </UserAuth>
+          } />
+          <Route path="/architecture-assessment/:id" element={
+            <UserAuth>
+              <ArchitectureAssessmentPage />
             </UserAuth>
           } />
           <Route path="/api-pentest" element={

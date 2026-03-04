@@ -8,6 +8,7 @@
     "@emotion/styled": "^11.14.0",
     "@hcaptcha/react-hcaptcha": "^1.12.0",
     "@mui/icons-material": "^7.1.0",
+    "@mui/lab": "^7.0.1-beta.22",
     "@mui/material": "^7.1.0",
     "@reduxjs/toolkit": "^2.8.2",
     "@testing-library/dom": "^10.4.0",
