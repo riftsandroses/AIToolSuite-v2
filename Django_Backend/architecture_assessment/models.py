@@ -293,6 +293,19 @@ class VulnerableComponent(models.Model):
     )
     cwe_id = models.CharField(max_length=50, blank=True, null=True)
     owasp_category = models.CharField(max_length=100, blank=True, null=True)
+
+    # AI-calculated severity reasoning (populated when severity is auto-calculated
+    # after a control is added, or set during initial analysis)
+    severity_reasoning = models.TextField(
+        blank=True,
+        null=True,
+        help_text="AI reasoning for the current severity level"
+    )
+    severity_last_calculated_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Timestamp of last AI severity recalculation"
+    )
     
     class Meta:
         db_table = 'vulnerable_components'
@@ -332,10 +345,17 @@ class RemediationControl(models.Model):
     implementation_details = models.TextField(blank=True, null=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='planned')
     
-    # Impact on risk
+    # Impact on risk — auto-calculated by AI; never manually supplied by the user
     risk_reduction_percentage = models.IntegerField(
         validators=[MinValueValidator(0), MaxValueValidator(100)],
-        help_text="Expected percentage reduction in risk"
+        null=True,
+        blank=True,
+        help_text="AI-calculated percentage reduction in risk. Set automatically; do not supply manually."
+    )
+    risk_reduction_reasoning = models.TextField(
+        blank=True,
+        null=True,
+        help_text="AI reasoning behind the risk_reduction_percentage value"
     )
     
     # Verification
@@ -343,11 +363,21 @@ class RemediationControl(models.Model):
     verified_by = models.CharField(max_length=255, blank=True, null=True)
     verified_at = models.DateTimeField(null=True, blank=True)
     
-    # Supporting documents
-    evidence_files = models.FileField(
-        upload_to='remediation_evidence/',
+    # AI-powered evidence verification result
+    evidence_verification_result = models.TextField(
         blank=True,
-        null=True
+        null=True,
+        help_text="AI analysis result of the uploaded evidence file"
+    )
+    evidence_verified_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the evidence was last AI-verified"
+    )
+    evidence_verification_passed = models.BooleanField(
+        null=True,
+        blank=True,
+        help_text="Whether the AI determined the evidence sufficiently proves implementation"
     )
     
     class Meta:
@@ -359,6 +389,36 @@ class RemediationControl(models.Model):
     
     def __str__(self):
         return f"{self.control_name} - {self.status}"
+
+
+class EvidenceFile(models.Model):
+    """
+    Separate evidence files linked to a remediation control.
+    Allows multiple evidence files per control while still using the
+    legacy single `evidence_files` FileField on RemediationControl for
+    backwards compatibility.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    remediation_control = models.ForeignKey(
+        RemediationControl,
+        on_delete=models.CASCADE,
+        related_name='evidence_attachments'
+    )
+    file = models.FileField(upload_to='remediation_evidence/attachments/')
+    original_filename = models.CharField(max_length=255)
+    file_type = models.CharField(max_length=50, blank=True, null=True)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    
+    # Per-file AI verification
+    ai_analysis = models.TextField(blank=True, null=True)
+    verification_passed = models.BooleanField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'evidence_files'
+        ordering = ['-uploaded_at']
+
+    def __str__(self):
+        return f"{self.original_filename} → {self.remediation_control.control_name}"
 
 
 class AssessmentHistory(models.Model):
@@ -391,3 +451,154 @@ class AssessmentHistory(models.Model):
     
     def __str__(self):
         return f"Score change: {self.previous_score} -> {self.new_score}"
+
+
+class VulnerabilityFeedback(models.Model):
+    """
+    Human feedback on vulnerability findings.
+
+    Three feedback types are supported:
+      - false_positive  : the finding is not a real vulnerability in this context
+      - prior_control   : a control was already in place before the assessment; the
+                          recommendation should have acknowledged it
+      - missed_finding  : a vulnerability was missed entirely by the AI and the
+                          reviewer is supplying it manually so future analyses improve
+    """
+
+    FEEDBACK_TYPE_CHOICES = [
+        ('false_positive', 'False Positive'),
+        ('prior_control', 'Prior Control Already Implemented'),
+        ('missed_finding', 'Missed Finding'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    # The finding this feedback applies to (nullable for missed_finding where no
+    # existing finding exists)
+    vulnerable_component = models.ForeignKey(
+        VulnerableComponent,
+        on_delete=models.CASCADE,
+        related_name='feedback',
+        null=True,
+        blank=True
+    )
+
+    # For missed_finding feedback we need to know which assessment it belongs to
+    assessment = models.ForeignKey(
+        SecurityAssessment,
+        on_delete=models.CASCADE,
+        related_name='feedback',
+        null=True,
+        blank=True
+    )
+
+    feedback_type = models.CharField(max_length=30, choices=FEEDBACK_TYPE_CHOICES)
+
+    # Human explanation / narrative
+    explanation = models.TextField(
+        help_text="Explain why this is a false positive, what prior control exists, "
+                  "or describe the missed finding in detail."
+    )
+
+    # For false_positive: which aspect is wrong
+    false_positive_reason = models.TextField(
+        blank=True, null=True,
+        help_text="Specific reason this was a false positive (context, architecture, etc.)"
+    )
+
+    # For prior_control: describe the existing control so the AI learns to detect it
+    prior_control_name = models.CharField(max_length=255, blank=True, null=True)
+    prior_control_description = models.TextField(blank=True, null=True)
+    prior_control_evidence = models.FileField(
+        upload_to='feedback_evidence/',
+        blank=True,
+        null=True
+    )
+
+    # For missed_finding: the full vulnerability that should have been raised
+    missed_finding_title = models.CharField(max_length=255, blank=True, null=True)
+    missed_finding_description = models.TextField(blank=True, null=True)
+    missed_finding_severity = models.CharField(
+        max_length=20,
+        choices=VulnerableComponent.SEVERITY_CHOICES,
+        blank=True,
+        null=True
+    )
+    missed_finding_category = models.CharField(max_length=100, blank=True, null=True)
+    missed_finding_recommendation = models.TextField(blank=True, null=True)
+
+    # Who submitted the feedback
+    submitted_by = models.CharField(max_length=255, blank=True, null=True)
+
+    # Whether this feedback has been incorporated into training
+    incorporated_in_training = models.BooleanField(default=False)
+    training_job = models.ForeignKey(
+        'TrainingJob',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='feedback_items'
+    )
+
+    class Meta:
+        db_table = 'vulnerability_feedback'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['feedback_type', 'incorporated_in_training']),
+            models.Index(fields=['assessment']),
+        ]
+
+    def __str__(self):
+        return f"{self.get_feedback_type_display()} — {self.created_at.date()}"
+
+
+class TrainingJob(models.Model):
+    """
+    Records of weekly automated fine-tuning / prompt-improvement jobs.
+
+    Instead of literal OpenAI fine-tuning (which is expensive and slow), the
+    job distills accumulated feedback into an updated system-prompt addendum
+    that is stored in `refined_system_prompt`.  The SecurityAnalyzer loads this
+    addendum at runtime and prepends it to every analysis prompt, effectively
+    making the model smarter about the specific patterns the team has corrected.
+    """
+
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('running', 'Running'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+
+    # How many feedback items were ingested
+    feedback_count = models.IntegerField(default=0)
+    false_positive_count = models.IntegerField(default=0)
+    prior_control_count = models.IntegerField(default=0)
+    missed_finding_count = models.IntegerField(default=0)
+
+    # The generated prompt addendum that improves future analyses
+    refined_system_prompt = models.TextField(
+        blank=True, null=True,
+        help_text="AI-generated prompt addendum incorporating all feedback patterns"
+    )
+
+    # Summary of what changed / was learned
+    training_summary = models.TextField(blank=True, null=True)
+
+    error_message = models.TextField(blank=True, null=True)
+
+    class Meta:
+        db_table = 'training_jobs'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"TrainingJob {self.id} [{self.status}] — {self.created_at.date()}"

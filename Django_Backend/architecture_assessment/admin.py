@@ -3,7 +3,10 @@ from .models import (
     SecurityAssessment,
     VulnerableComponent,
     RemediationControl,
-    AssessmentHistory
+    EvidenceFile,
+    AssessmentHistory,
+    VulnerabilityFeedback,
+    TrainingJob,
 )
 
 
@@ -86,14 +89,15 @@ class SecurityAssessmentAdmin(admin.ModelAdmin):
 class VulnerableComponentAdmin(admin.ModelAdmin):
     list_display = [
         'id', 'assessment', 'control_title', 'severity',
-        'status', 'category_tag', 'created_at'
+        'status', 'category_tag', 'created_at',
+        'severity_last_calculated_at'
     ]
     list_filter = ['severity', 'status', 'category_tag', 'created_at']
     search_fields = [
         'control_title', 'control_description',
         'affected_devices', 'framework_mapping'
     ]
-    readonly_fields = ['id', 'created_at', 'updated_at']
+    readonly_fields = ['id', 'created_at', 'updated_at', 'severity_reasoning', 'severity_last_calculated_at']
     
     fieldsets = (
         ('Basic Information', {
@@ -111,18 +115,34 @@ class VulnerableComponentAdmin(admin.ModelAdmin):
                 'cvss_score', 'cwe_id', 'owasp_category'
             )
         }),
+        ('AI Severity Calculation', {
+            'fields': ('severity_reasoning', 'severity_last_calculated_at'),
+            'classes': ('collapse',)
+        }),
     )
+
+
+class EvidenceFileInline(admin.TabularInline):
+    model = EvidenceFile
+    extra = 0
+    readonly_fields = ['uploaded_at', 'ai_analysis', 'verification_passed']
+    fields = ['file', 'original_filename', 'file_type', 'uploaded_at', 'verification_passed', 'ai_analysis']
 
 
 @admin.register(RemediationControl)
 class RemediationControlAdmin(admin.ModelAdmin):
     list_display = [
         'id', 'vulnerable_component', 'control_name',
-        'status', 'risk_reduction_percentage', 'created_at'
+        'status', 'risk_reduction_percentage',
+        'evidence_verification_passed', 'created_at'
     ]
-    list_filter = ['status', 'created_at']
+    list_filter = ['status', 'evidence_verification_passed', 'created_at']
     search_fields = ['control_name', 'control_description', 'verified_by']
-    readonly_fields = ['id', 'created_at', 'updated_at']
+    readonly_fields = [
+        'id', 'created_at', 'updated_at',
+        'evidence_verification_result', 'evidence_verified_at', 'evidence_verification_passed'
+    ]
+    inlines = [EvidenceFileInline]
     
     fieldsets = (
         ('Basic Information', {
@@ -141,7 +161,23 @@ class RemediationControlAdmin(admin.ModelAdmin):
                 'verified_at', 'evidence_files'
             )
         }),
+        ('AI Evidence Verification', {
+            'fields': (
+                'evidence_verification_result',
+                'evidence_verified_at',
+                'evidence_verification_passed'
+            ),
+            'classes': ('collapse',)
+        }),
     )
+
+
+@admin.register(EvidenceFile)
+class EvidenceFileAdmin(admin.ModelAdmin):
+    list_display = ['id', 'remediation_control', 'original_filename', 'file_type', 'verification_passed', 'uploaded_at']
+    list_filter = ['verification_passed', 'file_type', 'uploaded_at']
+    search_fields = ['original_filename', 'ai_analysis']
+    readonly_fields = ['id', 'uploaded_at', 'ai_analysis', 'verification_passed']
 
 
 @admin.register(AssessmentHistory)
@@ -163,5 +199,87 @@ class AssessmentHistoryAdmin(admin.ModelAdmin):
                 'previous_score', 'new_score',
                 'change_reason', 'changed_by'
             )
+        }),
+    )
+
+
+@admin.register(VulnerabilityFeedback)
+class VulnerabilityFeedbackAdmin(admin.ModelAdmin):
+    list_display = [
+        'id', 'feedback_type', 'vulnerable_component', 'assessment',
+        'submitted_by', 'incorporated_in_training', 'created_at'
+    ]
+    list_filter = ['feedback_type', 'incorporated_in_training', 'created_at']
+    search_fields = [
+        'explanation', 'false_positive_reason',
+        'prior_control_name', 'missed_finding_title', 'submitted_by'
+    ]
+    readonly_fields = ['id', 'created_at', 'updated_at', 'incorporated_in_training', 'training_job']
+
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('id', 'created_at', 'updated_at', 'feedback_type', 'submitted_by')
+        }),
+        ('Linked Records', {
+            'fields': ('vulnerable_component', 'assessment')
+        }),
+        ('Feedback Content', {
+            'fields': ('explanation',)
+        }),
+        ('False Positive Details', {
+            'fields': ('false_positive_reason',),
+            'classes': ('collapse',)
+        }),
+        ('Prior Control Details', {
+            'fields': ('prior_control_name', 'prior_control_description', 'prior_control_evidence'),
+            'classes': ('collapse',)
+        }),
+        ('Missed Finding Details', {
+            'fields': (
+                'missed_finding_title', 'missed_finding_description',
+                'missed_finding_severity', 'missed_finding_category',
+                'missed_finding_recommendation'
+            ),
+            'classes': ('collapse',)
+        }),
+        ('Training Status', {
+            'fields': ('incorporated_in_training', 'training_job'),
+            'classes': ('collapse',)
+        }),
+    )
+
+
+@admin.register(TrainingJob)
+class TrainingJobAdmin(admin.ModelAdmin):
+    list_display = [
+        'id', 'status', 'feedback_count',
+        'false_positive_count', 'prior_control_count', 'missed_finding_count',
+        'created_at', 'completed_at'
+    ]
+    list_filter = ['status', 'created_at']
+    readonly_fields = [
+        'id', 'created_at', 'started_at', 'completed_at',
+        'feedback_count', 'false_positive_count', 'prior_control_count',
+        'missed_finding_count', 'training_summary', 'error_message',
+        # refined_system_prompt is shown in admin for debugging but is read-only
+        'refined_system_prompt'
+    ]
+
+    fieldsets = (
+        ('Job Info', {
+            'fields': ('id', 'status', 'created_at', 'started_at', 'completed_at')
+        }),
+        ('Feedback Stats', {
+            'fields': (
+                'feedback_count', 'false_positive_count',
+                'prior_control_count', 'missed_finding_count'
+            )
+        }),
+        ('Results', {
+            'fields': ('training_summary', 'error_message')
+        }),
+        ('Generated Prompt Addendum (internal)', {
+            'fields': ('refined_system_prompt',),
+            'classes': ('collapse',)
         }),
     )

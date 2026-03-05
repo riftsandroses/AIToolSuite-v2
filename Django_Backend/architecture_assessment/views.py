@@ -5,6 +5,7 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django.shortcuts import get_object_or_404
 from django.db import transaction
 from django.http import FileResponse
+from django.utils import timezone
 from django.conf import settings
 import os
 
@@ -12,7 +13,10 @@ from .models import (
     SecurityAssessment,
     VulnerableComponent,
     RemediationControl,
-    AssessmentHistory
+    EvidenceFile,
+    AssessmentHistory,
+    VulnerabilityFeedback,
+    TrainingJob,
 )
 from .serializers import (
     SecurityAssessmentListSerializer,
@@ -21,32 +25,190 @@ from .serializers import (
     VulnerableComponentSerializer,
     VulnerableComponentUpdateSerializer,
     RemediationControlSerializer,
-    AssessmentHistorySerializer
+    EvidenceFileSerializer,
+    AssessmentHistorySerializer,
+    VulnerabilityFeedbackSerializer,
+    TrainingJobSerializer,
 )
-from .services import SecurityAnalyzer
+from .services import SecurityAnalyzer, FeedbackTrainer
 from .utils import ExcelReportGenerator
 
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _recalculate_assessment_risk(assessment):
+    """Shared helper — recalculate overall risk score when controls change."""
+    try:
+        all_controls = []
+        for vuln in assessment.vulnerable_components.all():
+            for c in vuln.remediation_controls.filter(status='implemented'):
+                all_controls.append({
+                    'control_name': c.control_name,
+                    'control_description': c.control_description,
+                    'risk_reduction_percentage': c.risk_reduction_percentage,
+                    'status': c.status,
+                })
+        
+        context = (
+            f"Application: {assessment.application_purpose or 'N/A'}\n"
+            f"Original Risk Score: {assessment.overall_risk_score}"
+        )
+
+        if all_controls:
+            analyzer = SecurityAnalyzer()
+            new_score, reasoning = analyzer.recalculate_risk_with_controls(
+                str(assessment.id), context, all_controls
+            )
+        else:
+            new_score = assessment.overall_risk_score
+            reasoning = "No implemented controls — risk score unchanged."
+
+        AssessmentHistory.objects.create(
+            assessment=assessment,
+            previous_score=assessment.overall_risk_score,
+            new_score=new_score,
+            change_reason="Risk recalculated after remediation control change"
+        )
+        assessment.overall_risk_score = new_score
+        assessment.risk_reasoning = reasoning
+        assessment.save()
+
+    except Exception as e:
+        print(f"Error recalculating risk: {str(e)}")
+
+
+def _process_evidence_and_risk_reduction(control, vulnerability, files):
+    """
+    For each uploaded file:
+      1. AI-verify the file against the control + vulnerability context.
+      2. Persist an EvidenceFile record with the AI verdict.
+    Then:
+      3. AI-calculate the overall risk_reduction_percentage from all evidence results.
+      4. Persist risk_reduction_percentage and risk_reduction_reasoning on the control.
+      5. If all evidence passed, auto-advance a 'planned' control to 'implemented'.
+    """
+    analyzer = SecurityAnalyzer()
+    control_data = {
+        'control_name': control.control_name,
+        'control_description': control.control_description,
+        'implementation_details': control.implementation_details,
+        'status': control.status,
+    }
+    vuln_data = {
+        'control_title': vulnerability.control_title,
+        'control_description': vulnerability.control_description,
+        'control_impact': vulnerability.control_impact,
+        'category_tag': vulnerability.category_tag,
+        'severity': vulnerability.severity,
+        'cvss_score': str(vulnerability.cvss_score) if vulnerability.cvss_score else None,
+    }
+
+    analyses = []
+    all_passed = True
+
+    for f in files:
+        try:
+            passed, analysis = analyzer.verify_evidence_file(control_data, vuln_data, f)
+            f.seek(0)
+            ext = f.name.split('.')[-1].lower()
+            EvidenceFile.objects.create(
+                remediation_control=control,
+                file=f,
+                original_filename=f.name,
+                file_type=ext,
+                ai_analysis=analysis,
+                verification_passed=passed,
+            )
+            analyses.append(analysis)
+            if not passed:
+                all_passed = False
+        except Exception as e:
+            analyses.append(f"[Error processing {f.name}: {e}]")
+            all_passed = False
+
+    # Concatenate all evidence analyses into a single summary for the control
+    combined_analysis = "\n---\n".join(analyses)
+
+    # Calculate risk reduction based on evidence quality
+    try:
+        pct, reasoning = analyzer.calculate_risk_reduction(
+            control_data, vuln_data, analyses, all_passed
+        )
+    except Exception as e:
+        pct, reasoning = 0, f"Risk reduction calculation failed: {e}"
+
+    # Auto-advance status if all evidence verified
+    new_status = control.status
+    if all_passed and control.status == 'planned':
+        new_status = 'implemented'
+
+    update_fields = [
+        'evidence_verification_result', 'evidence_verification_passed',
+        'evidence_verified_at', 'risk_reduction_percentage',
+        'risk_reduction_reasoning', 'status', 'updated_at',
+    ]
+    control.evidence_verification_result = combined_analysis
+    control.evidence_verification_passed = all_passed
+    control.evidence_verified_at = timezone.now()
+    control.risk_reduction_percentage = pct
+    control.risk_reduction_reasoning = reasoning
+    control.status = new_status
+    control.save(update_fields=update_fields)
+
+
+def _recalculate_vulnerability_severity(vulnerability):
+    """
+    Auto-recalculate the severity of a vulnerability based on all its controls.
+    Updates the vulnerability in-place (saves to DB).
+    """
+    try:
+        controls = list(vulnerability.remediation_controls.values(
+            'control_name', 'control_description', 'implementation_details',
+            'status', 'risk_reduction_percentage'
+        ))
+        vuln_data = {
+            'control_title': vulnerability.control_title,
+            'control_description': vulnerability.control_description,
+            'control_impact': vulnerability.control_impact,
+            'category_tag': vulnerability.category_tag,
+            'cvss_score': str(vulnerability.cvss_score) if vulnerability.cvss_score else None,
+            'cwe_id': vulnerability.cwe_id,
+            'severity': vulnerability.severity,
+        }
+        analyzer = SecurityAnalyzer()
+        new_severity, reasoning = analyzer.recalculate_vulnerability_severity(
+            vuln_data, controls
+        )
+        vulnerability.severity = new_severity
+        vulnerability.severity_reasoning = reasoning
+        vulnerability.severity_last_calculated_at = timezone.now()
+        vulnerability.save(update_fields=[
+            'severity', 'severity_reasoning', 'severity_last_calculated_at', 'updated_at'
+        ])
+    except Exception as e:
+        print(f"Error recalculating severity for {vulnerability.id}: {str(e)}")
+
+
+# ---------------------------------------------------------------------------
+# Assessment endpoints
+# ---------------------------------------------------------------------------
+
 class AssessmentListCreateView(APIView):
     """
-    List all assessments or create new assessment
-    
-    GET /api/assessments/
-    POST /api/assessments/
+    GET  /api/assessments/   — list all assessments
+    POST /api/assessments/   — create new assessment + run AI analysis
     """
-    
     parser_classes = (MultiPartParser, FormParser)
     
     def get(self, request):
-        """List all security assessments"""
         assessments = SecurityAssessment.objects.all()
         
-        # Filter by status if provided
         status_filter = request.query_params.get('status')
         if status_filter:
             assessments = assessments.filter(status=status_filter)
         
-        # Filter by risk score range
         min_score = request.query_params.get('min_score')
         max_score = request.query_params.get('max_score')
         if min_score:
@@ -58,16 +220,13 @@ class AssessmentListCreateView(APIView):
         return Response(serializer.data)
     
     def post(self, request):
-        """Create new security assessment"""
         serializer = SecurityAssessmentCreateSerializer(data=request.data)
-        
         if not serializer.is_valid():
             return Response(
                 {'error': 'Invalid data', 'details': serializer.errors},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Get architecture file
         architecture_file = request.FILES.get('architecture_diagram')
         if not architecture_file:
             return Response(
@@ -77,50 +236,28 @@ class AssessmentListCreateView(APIView):
         
         try:
             with transaction.atomic():
-                # Create assessment
                 assessment = serializer.save(status='processing')
                 
-                # Prepare data for analysis
-                assessment_data = {
-                    'id': str(assessment.id),
-                    **serializer.validated_data
-                }
+                assessment_data = {'id': str(assessment.id), **serializer.validated_data}
+                for key in ['architecture_diagram', 'high_level_architecture',
+                            'logical_architecture', 'physical_architecture', 'data_flow_diagrams']:
+                    assessment_data.pop(key, None)
                 
-                # Remove file fields from dict for context building
-                assessment_data.pop('architecture_diagram', None)
-                assessment_data.pop('high_level_architecture', None)
-                assessment_data.pop('logical_architecture', None)
-                assessment_data.pop('physical_architecture', None)
-                assessment_data.pop('data_flow_diagrams', None)
-                
-                print(f"Starting analysis for assessment {assessment.id}")
-                print(f"Architecture file: {architecture_file.name}, size: {architecture_file.size} bytes")
-                
-                # Perform AI analysis
                 analyzer = SecurityAnalyzer()
                 risk_score, reasoning, vulnerabilities = analyzer.analyze_security(
-                    assessment_data,
-                    architecture_file
+                    assessment_data, architecture_file
                 )
                 
-                print(f"Analysis complete. Risk score: {risk_score}")
-                
-                # Update assessment with results
                 assessment.overall_risk_score = risk_score
                 assessment.risk_reasoning = reasoning
                 assessment.status = 'completed'
                 assessment.save()
                 
-                # Create vulnerability records
                 for vuln_data in vulnerabilities:
-                    VulnerableComponent.objects.create(
-                        assessment=assessment,
-                        **vuln_data
-                    )
+                    VulnerableComponent.objects.create(assessment=assessment, **vuln_data)
                 
                 print(f"Created {len(vulnerabilities)} vulnerability records")
                 
-                # Create initial history entry
                 AssessmentHistory.objects.create(
                     assessment=assessment,
                     previous_score=None,
@@ -128,23 +265,15 @@ class AssessmentListCreateView(APIView):
                     change_reason="Initial assessment completed"
                 )
             
-            # Return complete assessment
             result_serializer = SecurityAssessmentDetailSerializer(assessment)
-            return Response(
-                result_serializer.data,
-                status=status.HTTP_201_CREATED
-            )
+            return Response(result_serializer.data, status=status.HTTP_201_CREATED)
             
         except Exception as e:
-            # Update status to failed
             if 'assessment' in locals():
                 assessment.status = 'failed'
                 assessment.save()
-            
             import traceback
-            error_details = f"{str(e)}\n\nTraceback:\n{traceback.format_exc()}"
-            print(f"Assessment failed: {error_details}")
-            
+            print(f"Assessment failed: {e}\n{traceback.format_exc()}")
             return Response(
                 {'error': 'Assessment failed', 'details': str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -153,58 +282,39 @@ class AssessmentListCreateView(APIView):
 
 class AssessmentDetailView(APIView):
     """
-    Retrieve, update or delete a security assessment
-    
-    GET /api/assessments/{id}/
-    PATCH /api/assessments/{id}/
+    GET    /api/assessments/{id}/
+    PATCH  /api/assessments/{id}/
     DELETE /api/assessments/{id}/
     """
     
     def get(self, request, pk):
-        """Get detailed assessment information"""
         assessment = get_object_or_404(SecurityAssessment, pk=pk)
         serializer = SecurityAssessmentDetailSerializer(assessment)
         return Response(serializer.data)
     
     def patch(self, request, pk):
-        """Update assessment metadata (not risk score)"""
         assessment = get_object_or_404(SecurityAssessment, pk=pk)
-        
-        # Only allow updating certain fields
         allowed_fields = [
             'application_purpose', 'business_objectives', 'stakeholders',
             'system_owners', 'compliance_requirements'
         ]
-        
         update_data = {k: v for k, v in request.data.items() if k in allowed_fields}
-        
         for field, value in update_data.items():
             setattr(assessment, field, value)
-        
         assessment.save()
-        
-        serializer = SecurityAssessmentDetailSerializer(assessment)
-        return Response(serializer.data)
+        return Response(SecurityAssessmentDetailSerializer(assessment).data)
     
     def delete(self, request, pk):
-        """Delete assessment"""
         assessment = get_object_or_404(SecurityAssessment, pk=pk)
         assessment.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class AssessmentReportView(APIView):
-    """
-    Generate and download Excel report
-    
-    GET /api/assessments/{id}/report/
-    """
+    """GET /api/assessments/{id}/report/"""
     
     def get(self, request, pk):
-        """Generate and download Excel report"""
         assessment = get_object_or_404(SecurityAssessment, pk=pk)
-        
-        # Prepare data
         assessment_data = SecurityAssessmentDetailSerializer(assessment).data
         vulnerabilities_data = list(
             assessment.vulnerable_components.values(
@@ -214,12 +324,8 @@ class AssessmentReportView(APIView):
                 'cvss_score', 'cwe_id', 'owasp_category'
             )
         )
-        
-        # Add remediation controls to vulnerabilities
         for vuln_data in vulnerabilities_data:
-            vuln = assessment.vulnerable_components.get(
-                control_title=vuln_data['control_title']
-            )
+            vuln = assessment.vulnerable_components.get(control_title=vuln_data['control_title'])
             vuln_data['remediation_controls'] = list(
                 vuln.remediation_controls.values(
                     'control_name', 'implementation_details',
@@ -228,30 +334,19 @@ class AssessmentReportView(APIView):
                 )
             )
         
-        history_data = list(
-            assessment.history.values(
-                'timestamp', 'previous_score', 'new_score',
-                'change_reason', 'changed_by'
-            )
-        )
+        history_data = list(assessment.history.values(
+            'timestamp', 'previous_score', 'new_score', 'change_reason', 'changed_by'
+        ))
         
         try:
-            # Generate report
             generator = ExcelReportGenerator()
-            filepath = generator.generate_report(
-                assessment_data,
-                vulnerabilities_data,
-                history_data
-            )
-            
-            # Return file
+            filepath = generator.generate_report(assessment_data, vulnerabilities_data, history_data)
             response = FileResponse(
                 open(filepath, 'rb'),
                 content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
             )
             response['Content-Disposition'] = f'attachment; filename="{os.path.basename(filepath)}"'
             return response
-            
         except Exception as e:
             return Response(
                 {'error': 'Report generation failed', 'details': str(e)},
@@ -259,29 +354,75 @@ class AssessmentReportView(APIView):
             )
 
 
-class VulnerabilityListView(APIView):
-    """
-    List vulnerabilities for an assessment
-    
-    GET /api/assessments/{id}/vulnerabilities/
-    """
+class AssessmentHistoryView(APIView):
+    """GET /api/assessments/{id}/history/"""
     
     def get(self, request, pk):
-        """Get all vulnerabilities for an assessment"""
+        assessment = get_object_or_404(SecurityAssessment, pk=pk)
+        history = assessment.history.all()
+        serializer = AssessmentHistorySerializer(history, many=True)
+        return Response(serializer.data)
+
+
+class AssessmentStatisticsView(APIView):
+    """GET /api/statistics/"""
+    
+    def get(self, request):
+        from django.db.models import Count
+
+        total_assessments = SecurityAssessment.objects.count()
+        completed_assessments = SecurityAssessment.objects.filter(status='completed').count()
+        high_risk = SecurityAssessment.objects.filter(overall_risk_score__gte=61).count()
+        medium_risk = SecurityAssessment.objects.filter(
+            overall_risk_score__gte=41, overall_risk_score__lt=61
+        ).count()
+        low_risk = SecurityAssessment.objects.filter(overall_risk_score__lt=41).count()
+        
+        total_vulnerabilities = VulnerableComponent.objects.count()
+        open_vulnerabilities = VulnerableComponent.objects.filter(status='open').count()
+        fixed_vulnerabilities = VulnerableComponent.objects.filter(status='fixed').count()
+        critical_vulns = VulnerableComponent.objects.filter(severity='critical', status='open').count()
+        high_vulns = VulnerableComponent.objects.filter(severity='high', status='open').count()
+        
+        category_stats = (
+            VulnerableComponent.objects
+            .values('category_tag')
+            .annotate(count=Count('id'))
+            .order_by('-count')[:10]
+        )
+        
+        return Response({
+            'assessments': {
+                'total': total_assessments, 'completed': completed_assessments,
+                'high_risk': high_risk, 'medium_risk': medium_risk, 'low_risk': low_risk
+            },
+            'vulnerabilities': {
+                'total': total_vulnerabilities, 'open': open_vulnerabilities,
+                'fixed': fixed_vulnerabilities, 'critical': critical_vulns, 'high': high_vulns
+            },
+            'top_categories': list(category_stats)
+        })
+
+
+# ---------------------------------------------------------------------------
+# Vulnerability endpoints
+# ---------------------------------------------------------------------------
+
+class VulnerabilityListView(APIView):
+    """GET /api/assessments/{id}/vulnerabilities/"""
+    
+    def get(self, request, pk):
         assessment = get_object_or_404(SecurityAssessment, pk=pk)
         vulnerabilities = assessment.vulnerable_components.all()
         
-        # Filter by severity
         severity_filter = request.query_params.get('severity')
         if severity_filter:
             vulnerabilities = vulnerabilities.filter(severity=severity_filter)
         
-        # Filter by status
         status_filter = request.query_params.get('status')
         if status_filter:
             vulnerabilities = vulnerabilities.filter(status=status_filter)
         
-        # Filter by category
         category_filter = request.query_params.get('category')
         if category_filter:
             vulnerabilities = vulnerabilities.filter(category_tag=category_filter)
@@ -292,339 +433,312 @@ class VulnerabilityListView(APIView):
 
 class VulnerabilityDetailView(APIView):
     """
-    Retrieve or update a specific vulnerability
-    
-    GET /api/vulnerabilities/{id}/
+    GET   /api/vulnerabilities/{id}/
     PATCH /api/vulnerabilities/{id}/
     """
     
     def get(self, request, pk):
-        """Get vulnerability details"""
         vulnerability = get_object_or_404(VulnerableComponent, pk=pk)
-        serializer = VulnerableComponentSerializer(vulnerability)
-        return Response(serializer.data)
+        return Response(VulnerableComponentSerializer(vulnerability).data)
     
     def patch(self, request, pk):
-        """Update vulnerability status"""
         vulnerability = get_object_or_404(VulnerableComponent, pk=pk)
-        serializer = VulnerableComponentUpdateSerializer(
-            vulnerability,
-            data=request.data,
-            partial=True
-        )
-        
+        serializer = VulnerableComponentUpdateSerializer(vulnerability, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
-            
-            # If marked as fixed, potentially recalculate risk score
             if serializer.validated_data.get('status') == 'fixed':
-                self._recalculate_risk_score(vulnerability.assessment)
-            
-            result_serializer = VulnerableComponentSerializer(vulnerability)
-            return Response(result_serializer.data)
-        
+                _recalculate_assessment_risk(vulnerability.assessment)
+            return Response(VulnerableComponentSerializer(vulnerability).data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
-    def _recalculate_risk_score(self, assessment):
-        """Helper to recalculate risk score when vulnerabilities are fixed"""
-        try:
-            # Get all implemented remediation controls
-            all_controls = []
-            for vuln in assessment.vulnerable_components.all():
-                controls = vuln.remediation_controls.filter(status='implemented')
-                all_controls.extend([{
-                    'control_name': c.control_name,
-                    'control_description': c.control_description,
-                    'risk_reduction_percentage': c.risk_reduction_percentage,
-                    'status': c.status
-                } for c in controls])
-            
-            if all_controls:
-                # Build context
-                context = f"""
-                Application: {assessment.application_purpose or 'N/A'}
-                Original Risk Score: {assessment.overall_risk_score}
-                Current Status: Assessment with {len(all_controls)} implemented controls
-                """
-                
-                analyzer = SecurityAnalyzer()
-                new_score, reasoning = analyzer.recalculate_risk_with_controls(
-                    str(assessment.id),
-                    context,
-                    all_controls
-                )
-                
-                # Create history entry
-                AssessmentHistory.objects.create(
-                    assessment=assessment,
-                    previous_score=assessment.overall_risk_score,
-                    new_score=new_score,
-                    change_reason=f"Risk recalculated after implementing {len(all_controls)} controls"
-                )
-                
-                # Update assessment
-                assessment.overall_risk_score = new_score
-                assessment.risk_reasoning = reasoning
-                assessment.save()
-                
-        except Exception as e:
-            print(f"Error recalculating risk score: {str(e)}")
 
+
+# ---------------------------------------------------------------------------
+# Remediation control endpoints
+# ---------------------------------------------------------------------------
 
 class RemediationControlListCreateView(APIView):
     """
-    List or create remediation controls for a vulnerability
-    
-    GET /api/vulnerabilities/{id}/controls/
+    GET  /api/vulnerabilities/{id}/controls/
     POST /api/vulnerabilities/{id}/controls/
+
+    Creating a control requires at least one evidence file uploaded under the
+    multipart field name 'files'. The API will:
+      1. Reject the request if no evidence file is provided.
+      2. AI-verify each evidence file.
+      3. AI-calculate risk_reduction_percentage from evidence quality + context.
+      4. Auto-recalculate the vulnerability severity.
+      5. Recalculate the overall assessment risk score.
     """
-    
     parser_classes = (MultiPartParser, FormParser, JSONParser)
-    
+
     def get(self, request, pk):
-        """Get all remediation controls for a vulnerability"""
         vulnerability = get_object_or_404(VulnerableComponent, pk=pk)
         controls = vulnerability.remediation_controls.all()
-        serializer = RemediationControlSerializer(controls, many=True)
-        return Response(serializer.data)
-    
+        return Response(RemediationControlSerializer(controls, many=True).data)
+
     def post(self, request, pk):
-        """Add a remediation control"""
         vulnerability = get_object_or_404(VulnerableComponent, pk=pk)
-        
+
+        # --- Evidence is mandatory on creation -------------------------------
+        files = request.FILES.getlist('files')
+        if not files:
+            return Response(
+                {
+                    'error': 'At least one evidence file is required.',
+                    'detail': (
+                        'Upload evidence files using the multipart field "files". '
+                        'The AI will verify each file and automatically calculate '
+                        'the risk_reduction_percentage.'
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         serializer = RemediationControlSerializer(data=request.data)
-        if serializer.is_valid():
-            control = serializer.save(vulnerable_component=vulnerability)
-            
-            # If control is implemented, recalculate risk
-            if control.status == 'implemented':
-                self._recalculate_assessment_risk(vulnerability.assessment)
-            
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
-    def _recalculate_assessment_risk(self, assessment):
-        """Recalculate risk score when new control is added"""
-        try:
-            all_controls = []
-            for vuln in assessment.vulnerable_components.all():
-                controls = vuln.remediation_controls.filter(status='implemented')
-                all_controls.extend([{
-                    'control_name': c.control_name,
-                    'control_description': c.control_description,
-                    'risk_reduction_percentage': c.risk_reduction_percentage,
-                    'status': c.status
-                } for c in controls])
-            
-            if all_controls:
-                context = f"""
-                Application: {assessment.application_purpose or 'N/A'}
-                Original Risk Score: {assessment.overall_risk_score}
-                """
-                
-                analyzer = SecurityAnalyzer()
-                new_score, reasoning = analyzer.recalculate_risk_with_controls(
-                    str(assessment.id),
-                    context,
-                    all_controls
-                )
-                
-                AssessmentHistory.objects.create(
-                    assessment=assessment,
-                    previous_score=assessment.overall_risk_score,
-                    new_score=new_score,
-                    change_reason="New remediation control implemented"
-                )
-                
-                assessment.overall_risk_score = new_score
-                assessment.risk_reasoning = reasoning
-                assessment.save()
-                
-        except Exception as e:
-            print(f"Error recalculating risk: {str(e)}")
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        # Save with risk_reduction_percentage=None; AI will fill it in below
+        control = serializer.save(vulnerable_component=vulnerability, risk_reduction_percentage=None)
+
+        # --- Evidence verification + risk reduction calculation --------------
+        _process_evidence_and_risk_reduction(control, vulnerability, files)
+
+        # --- Severity auto-calculation ---------------------------------------
+        _recalculate_vulnerability_severity(vulnerability)
+
+        # --- Overall risk recalculation --------------------------------------
+        if control.status in ('implemented', 'verified'):
+            _recalculate_assessment_risk(vulnerability.assessment)
+
+        return Response(
+            RemediationControlSerializer(control).data,
+            status=status.HTTP_201_CREATED
+        )
 
 
 class RemediationControlDetailView(APIView):
     """
-    Retrieve, update or delete a remediation control
-    
-    GET /api/controls/{id}/
-    PATCH /api/controls/{id}/
+    GET    /api/controls/{id}/
+    PATCH  /api/controls/{id}/
     DELETE /api/controls/{id}/
     """
-    
     parser_classes = (MultiPartParser, FormParser, JSONParser)
     
     def get(self, request, pk):
-        """Get control details"""
         control = get_object_or_404(RemediationControl, pk=pk)
-        serializer = RemediationControlSerializer(control)
-        return Response(serializer.data)
+        return Response(RemediationControlSerializer(control).data)
     
     def patch(self, request, pk):
-        """Update control"""
         control = get_object_or_404(RemediationControl, pk=pk)
-        
         old_status = control.status
-        
-        serializer = RemediationControlSerializer(
-            control,
-            data=request.data,
-            partial=True
-        )
-        
-        if serializer.is_valid():
-            updated_control = serializer.save()
-            
-            # If status changed to implemented, recalculate risk
-            if old_status != 'implemented' and updated_control.status == 'implemented':
-                self._recalculate_assessment_risk(
-                    updated_control.vulnerable_component.assessment
-                )
-            
-            return Response(serializer.data)
-        
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        serializer = RemediationControlSerializer(control, data=request.data, partial=True)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        updated_control = serializer.save()
+        vulnerability = updated_control.vulnerable_component
+
+        # --- Process any newly uploaded evidence files -----------------------
+        files = request.FILES.getlist('files')
+        if files:
+            _process_evidence_and_risk_reduction(updated_control, vulnerability, files)
+
+        # --- Severity auto-recalculation -------------------------------------
+        _recalculate_vulnerability_severity(vulnerability)
+
+        # --- Overall risk recalculation when status becomes implemented ------
+        if old_status not in ('implemented', 'verified') and updated_control.status in ('implemented', 'verified'):
+            _recalculate_assessment_risk(vulnerability.assessment)
+
+        return Response(RemediationControlSerializer(updated_control).data)
     
     def delete(self, request, pk):
-        """Delete control"""
         control = get_object_or_404(RemediationControl, pk=pk)
-        assessment = control.vulnerable_component.assessment
-        
+        vulnerability = control.vulnerable_component
+        assessment = vulnerability.assessment
         control.delete()
-        
-        # Recalculate risk after removing control
-        self._recalculate_assessment_risk(assessment)
-        
+        _recalculate_vulnerability_severity(vulnerability)
+        _recalculate_assessment_risk(assessment)
         return Response(status=status.HTTP_204_NO_CONTENT)
-    
-    def _recalculate_assessment_risk(self, assessment):
-        """Recalculate risk score"""
-        try:
-            all_controls = []
-            for vuln in assessment.vulnerable_components.all():
-                controls = vuln.remediation_controls.filter(status='implemented')
-                all_controls.extend([{
-                    'control_name': c.control_name,
-                    'control_description': c.control_description,
-                    'risk_reduction_percentage': c.risk_reduction_percentage,
-                    'status': c.status
-                } for c in controls])
-            
-            context = f"Application: {assessment.application_purpose or 'N/A'}\nOriginal Risk Score: {assessment.overall_risk_score}"
-            
-            if all_controls:
-                analyzer = SecurityAnalyzer()
-                new_score, reasoning = analyzer.recalculate_risk_with_controls(
-                    str(assessment.id),
-                    context,
-                    all_controls
-                )
-            else:
-                # No controls left, return to original or near-original score
-                new_score = assessment.overall_risk_score
-                reasoning = "All remediation controls removed"
-            
-            AssessmentHistory.objects.create(
-                assessment=assessment,
-                previous_score=assessment.overall_risk_score,
-                new_score=new_score,
-                change_reason="Remediation control updated/removed"
+
+
+# ---------------------------------------------------------------------------
+# Evidence file upload (additional files for an existing control)
+# ---------------------------------------------------------------------------
+
+class EvidenceFileUploadView(APIView):
+    """
+    POST /api/controls/{id}/evidence/
+
+    Upload one or more additional evidence files to an existing control.
+    Each file is individually AI-verified.
+    """
+    parser_classes = (MultiPartParser, FormParser)
+
+    def post(self, request, pk):
+        control = get_object_or_404(RemediationControl, pk=pk)
+        vulnerability = control.vulnerable_component
+
+        files = request.FILES.getlist('files')
+        if not files:
+            return Response(
+                {'error': 'No files provided. Use the "files" multipart field.'},
+                status=status.HTTP_400_BAD_REQUEST
             )
-            
-            assessment.overall_risk_score = new_score
-            assessment.risk_reasoning = reasoning
-            assessment.save()
-            
-        except Exception as e:
-            print(f"Error recalculating risk: {str(e)}")
+
+        # Process all files: verify + calculate risk reduction
+        _process_evidence_and_risk_reduction(control, vulnerability, files)
+
+        # Re-run severity & risk calculations
+        _recalculate_vulnerability_severity(vulnerability)
+        if control.status in ('implemented', 'verified'):
+            _recalculate_assessment_risk(vulnerability.assessment)
+
+        # Return updated evidence attachments
+        updated_attachments = EvidenceFileSerializer(
+            control.evidence_attachments.all(), many=True
+        ).data
+        return Response(
+            {
+                'uploaded': updated_attachments,
+                'risk_reduction_percentage': control.risk_reduction_percentage,
+                'risk_reduction_reasoning': control.risk_reduction_reasoning,
+                'evidence_verification_passed': control.evidence_verification_passed,
+            },
+            status=status.HTTP_201_CREATED
+        )
 
 
-class AssessmentHistoryView(APIView):
-    """
-    Get assessment history
-    
-    GET /api/assessments/{id}/history/
-    """
-    
-    def get(self, request, pk):
-        """Get risk score change history"""
-        assessment = get_object_or_404(SecurityAssessment, pk=pk)
-        history = assessment.history.all()
-        serializer = AssessmentHistorySerializer(history, many=True)
-        return Response(serializer.data)
+# ---------------------------------------------------------------------------
+# Feedback endpoints
+# ---------------------------------------------------------------------------
 
+class VulnerabilityFeedbackListCreateView(APIView):
+    """
+    GET  /api/feedback/                — list all feedback (filterable)
+    POST /api/feedback/                — submit new feedback
+    """
+    parser_classes = (MultiPartParser, FormParser, JSONParser)
 
-class AssessmentStatisticsView(APIView):
-    """
-    Get overall statistics
-    
-    GET /api/statistics/
-    """
-    
     def get(self, request):
-        """Get comprehensive statistics"""
-        
-        # Overall counts
-        total_assessments = SecurityAssessment.objects.count()
-        completed_assessments = SecurityAssessment.objects.filter(
-            status='completed'
+        qs = VulnerabilityFeedback.objects.all()
+
+        fb_type = request.query_params.get('feedback_type')
+        if fb_type:
+            qs = qs.filter(feedback_type=fb_type)
+
+        assessment_id = request.query_params.get('assessment')
+        if assessment_id:
+            qs = qs.filter(assessment_id=assessment_id)
+
+        incorporated = request.query_params.get('incorporated')
+        if incorporated is not None:
+            qs = qs.filter(incorporated_in_training=(incorporated.lower() == 'true'))
+
+        return Response(VulnerabilityFeedbackSerializer(qs, many=True).data)
+
+    def post(self, request):
+        serializer = VulnerabilityFeedbackSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                {'error': 'Invalid feedback data', 'details': serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        feedback = serializer.save()
+
+        # Auto-update the vulnerability status when marked as false positive
+        if feedback.feedback_type == 'false_positive' and feedback.vulnerable_component:
+            vc = feedback.vulnerable_component
+            vc.status = 'false_positive'
+            vc.save(update_fields=['status', 'updated_at'])
+
+        return Response(
+            VulnerabilityFeedbackSerializer(feedback).data,
+            status=status.HTTP_201_CREATED
+        )
+
+
+class VulnerabilityFeedbackDetailView(APIView):
+    """
+    GET    /api/feedback/{id}/
+    PATCH  /api/feedback/{id}/
+    DELETE /api/feedback/{id}/
+    """
+    parser_classes = (MultiPartParser, FormParser, JSONParser)
+
+    def get(self, request, pk):
+        feedback = get_object_or_404(VulnerabilityFeedback, pk=pk)
+        return Response(VulnerabilityFeedbackSerializer(feedback).data)
+
+    def patch(self, request, pk):
+        feedback = get_object_or_404(VulnerabilityFeedback, pk=pk)
+        if feedback.incorporated_in_training:
+            return Response(
+                {'error': 'Cannot edit feedback that has already been incorporated into training.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        serializer = VulnerabilityFeedbackSerializer(feedback, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request, pk):
+        feedback = get_object_or_404(VulnerabilityFeedback, pk=pk)
+        if feedback.incorporated_in_training:
+            return Response(
+                {'error': 'Cannot delete feedback that has already been incorporated into training.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        feedback.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ---------------------------------------------------------------------------
+# Training job endpoints
+# ---------------------------------------------------------------------------
+
+class TrainingJobListView(APIView):
+    """
+    GET  /api/training/   — list all training jobs
+    POST /api/training/   — trigger a new training run immediately
+    """
+
+    def get(self, request):
+        jobs = TrainingJob.objects.all()
+        return Response(TrainingJobSerializer(jobs, many=True).data)
+
+    def post(self, request):
+        """
+        Manually trigger a training run.
+        Returns the TrainingJob record.  The actual work is done synchronously
+        here; for production you'd dispatch this to a Celery task.
+        """
+        pending_count = VulnerabilityFeedback.objects.filter(
+            incorporated_in_training=False
         ).count()
-        
-        # Risk distribution
-        high_risk = SecurityAssessment.objects.filter(
-            overall_risk_score__gte=61
-        ).count()
-        medium_risk = SecurityAssessment.objects.filter(
-            overall_risk_score__gte=41,
-            overall_risk_score__lt=61
-        ).count()
-        low_risk = SecurityAssessment.objects.filter(
-            overall_risk_score__lt=41
-        ).count()
-        
-        # Vulnerability stats
-        total_vulnerabilities = VulnerableComponent.objects.count()
-        open_vulnerabilities = VulnerableComponent.objects.filter(
-            status='open'
-        ).count()
-        fixed_vulnerabilities = VulnerableComponent.objects.filter(
-            status='fixed'
-        ).count()
-        
-        # Severity breakdown
-        critical_vulns = VulnerableComponent.objects.filter(
-            severity='critical',
-            status='open'
-        ).count()
-        high_vulns = VulnerableComponent.objects.filter(
-            severity='high',
-            status='open'
-        ).count()
-        
-        # Category breakdown
-        from django.db.models import Count
-        category_stats = VulnerableComponent.objects.values(
-            'category_tag'
-        ).annotate(
-            count=Count('id')
-        ).order_by('-count')[:10]
-        
-        return Response({
-            'assessments': {
-                'total': total_assessments,
-                'completed': completed_assessments,
-                'high_risk': high_risk,
-                'medium_risk': medium_risk,
-                'low_risk': low_risk
-            },
-            'vulnerabilities': {
-                'total': total_vulnerabilities,
-                'open': open_vulnerabilities,
-                'fixed': fixed_vulnerabilities,
-                'critical': critical_vulns,
-                'high': high_vulns
-            },
-            'top_categories': list(category_stats)
-        })
+        if pending_count == 0:
+            return Response(
+                {'message': 'No unincorporated feedback found. Nothing to train on.'},
+                status=status.HTTP_200_OK
+            )
+
+        try:
+            trainer = FeedbackTrainer()
+            job = trainer.run_weekly_training()
+            return Response(TrainingJobSerializer(job).data, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            return Response(
+                {'error': 'Training run failed', 'details': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class TrainingJobDetailView(APIView):
+    """GET /api/training/{id}/"""
+
+    def get(self, request, pk):
+        job = get_object_or_404(TrainingJob, pk=pk)
+        return Response(TrainingJobSerializer(job).data)

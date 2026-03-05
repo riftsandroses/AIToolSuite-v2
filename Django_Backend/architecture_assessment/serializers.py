@@ -3,58 +3,119 @@ from .models import (
     SecurityAssessment,
     VulnerableComponent,
     RemediationControl,
-    AssessmentHistory
+    EvidenceFile,
+    AssessmentHistory,
+    VulnerabilityFeedback,
+    TrainingJob,
 )
 
 
+# ---------------------------------------------------------------------------
+# Evidence file
+# ---------------------------------------------------------------------------
+
+class EvidenceFileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = EvidenceFile
+        fields = [
+            'id', 'file', 'original_filename', 'file_type',
+            'uploaded_at', 'ai_analysis', 'verification_passed'
+        ]
+        read_only_fields = ['id', 'uploaded_at', 'ai_analysis', 'verification_passed']
+
+
+# ---------------------------------------------------------------------------
+# Remediation control
+# ---------------------------------------------------------------------------
+
 class RemediationControlSerializer(serializers.ModelSerializer):
-    """Serializer for remediation controls"""
-    
+    """
+    Serializer for remediation controls.
+
+    Writable by clients:
+        control_name, control_description, implementation_details, status,
+        verification_notes, verified_by, verified_at
+
+    Read-only (AI-populated - never submit these):
+        risk_reduction_percentage  -- calculated by AI from evidence + vulnerability context
+        risk_reduction_reasoning   -- AI explanation of the calculated percentage
+        evidence_verification_result, evidence_verified_at, evidence_verification_passed
+        evidence_attachments       -- EvidenceFile records created server-side
+
+    Evidence files MUST be uploaded as multipart field 'files' on:
+        POST /api/vulnerabilities/{id}/controls/
+        PATCH /api/controls/{id}/
+        POST /api/controls/{id}/evidence/
+    At least one evidence file is REQUIRED when creating a control.
+    """
+    evidence_attachments = EvidenceFileSerializer(many=True, read_only=True)
+
     class Meta:
         model = RemediationControl
         fields = [
             'id', 'control_name', 'control_description',
-            'implementation_details', 'status', 'risk_reduction_percentage',
+            'implementation_details', 'status',
+            # AI-calculated -- read-only
+            'risk_reduction_percentage', 'risk_reduction_reasoning',
             'verification_notes', 'verified_by', 'verified_at',
-            'evidence_files', 'created_at', 'updated_at'
+            # AI evidence verification results -- read-only
+            'evidence_verification_result', 'evidence_verified_at',
+            'evidence_verification_passed',
+            # All attached evidence files -- read-only
+            'evidence_attachments',
+            'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = [
+            'id', 'created_at', 'updated_at',
+            # Clients must never submit these -- AI sets them
+            'risk_reduction_percentage', 'risk_reduction_reasoning',
+            'evidence_verification_result', 'evidence_verified_at',
+            'evidence_verification_passed',
+        ]
 
+
+# ---------------------------------------------------------------------------
+# Vulnerable component
+# ---------------------------------------------------------------------------
 
 class VulnerableComponentSerializer(serializers.ModelSerializer):
     """Serializer for vulnerable components/findings"""
-    
+
     remediation_controls = RemediationControlSerializer(many=True, read_only=True)
     remediation_count = serializers.SerializerMethodField()
     is_remediated = serializers.SerializerMethodField()
-    
+
     class Meta:
         model = VulnerableComponent
         fields = [
             'id', 'control_title', 'control_description', 'control_impact',
             'control_recommendation', 'severity', 'status', 'affected_devices',
             'category_tag', 'framework_mapping', 'cvss_score', 'cwe_id',
-            'owasp_category', 'remediation_controls', 'remediation_count',
+            'owasp_category',
+            # Severity auto-calculation metadata
+            'severity_reasoning', 'severity_last_calculated_at',
+            'remediation_controls', 'remediation_count',
             'is_remediated', 'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
-    
+        read_only_fields = [
+            'id', 'created_at', 'updated_at',
+            'severity_reasoning', 'severity_last_calculated_at',
+        ]
+
     def get_remediation_count(self, obj):
         return obj.remediation_controls.filter(status='implemented').count()
-    
+
     def get_is_remediated(self, obj):
         return obj.status == 'fixed'
-    
+
     def validate_control_description(self, value):
-        """Ensure control description starts with 'It was observed'"""
         if not value.strip().lower().startswith('it was observed'):
             raise serializers.ValidationError(
                 "Control description must start with 'It was observed...'"
             )
         return value
-    
+
     def validate_control_recommendation(self, value):
-        """Ensure control recommendation starts with 'It is recommended'"""
         if not value.strip().lower().startswith('it is recommended'):
             raise serializers.ValidationError(
                 "Control recommendation must start with 'It is recommended...'"
@@ -62,11 +123,13 @@ class VulnerableComponentSerializer(serializers.ModelSerializer):
         return value
 
 
+# ---------------------------------------------------------------------------
+# Assessment history
+# ---------------------------------------------------------------------------
+
 class AssessmentHistorySerializer(serializers.ModelSerializer):
-    """Serializer for assessment history"""
-    
     score_change = serializers.SerializerMethodField()
-    
+
     class Meta:
         model = AssessmentHistory
         fields = [
@@ -74,20 +137,22 @@ class AssessmentHistorySerializer(serializers.ModelSerializer):
             'change_reason', 'changed_by', 'timestamp'
         ]
         read_only_fields = ['id', 'timestamp']
-    
+
     def get_score_change(self, obj):
         if obj.previous_score is not None:
             return obj.new_score - obj.previous_score
         return 0
 
 
+# ---------------------------------------------------------------------------
+# Assessment (list / detail / create)
+# ---------------------------------------------------------------------------
+
 class SecurityAssessmentListSerializer(serializers.ModelSerializer):
-    """Lightweight serializer for listing assessments"""
-    
     vulnerability_count = serializers.SerializerMethodField()
     critical_count = serializers.SerializerMethodField()
     high_count = serializers.SerializerMethodField()
-    
+
     class Meta:
         model = SecurityAssessment
         fields = [
@@ -96,37 +161,28 @@ class SecurityAssessmentListSerializer(serializers.ModelSerializer):
             'critical_count', 'high_count', 'application_purpose'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
-    
+
     def get_vulnerability_count(self, obj):
         return obj.vulnerable_components.filter(status='open').count()
-    
+
     def get_critical_count(self, obj):
-        return obj.vulnerable_components.filter(
-            severity='critical',
-            status='open'
-        ).count()
-    
+        return obj.vulnerable_components.filter(severity='critical', status='open').count()
+
     def get_high_count(self, obj):
-        return obj.vulnerable_components.filter(
-            severity='high',
-            status='open'
-        ).count()
+        return obj.vulnerable_components.filter(severity='high', status='open').count()
 
 
 class SecurityAssessmentDetailSerializer(serializers.ModelSerializer):
-    """Detailed serializer for assessment with all fields and relationships"""
-    
     vulnerable_components = VulnerableComponentSerializer(many=True, read_only=True)
     history = AssessmentHistorySerializer(many=True, read_only=True)
     vulnerability_summary = serializers.SerializerMethodField()
-    
+
     class Meta:
         model = SecurityAssessment
         fields = '__all__'
         read_only_fields = ['id', 'created_at', 'updated_at', 'overall_risk_score', 'risk_reasoning']
-    
+
     def get_vulnerability_summary(self, obj):
-        """Get summary of vulnerabilities by severity"""
         components = obj.vulnerable_components.filter(status='open')
         return {
             'total': components.count(),
@@ -139,15 +195,13 @@ class SecurityAssessmentDetailSerializer(serializers.ModelSerializer):
 
 
 class SecurityAssessmentCreateSerializer(serializers.ModelSerializer):
-    """Serializer for creating new assessments"""
-    
     class Meta:
         model = SecurityAssessment
         fields = [
             'architecture_diagram',
             'application_purpose', 'business_objectives', 'business_criticality',
             'impact_of_failure', 'supported_business_processes', 'data_sensitivity',
-            'data_classification_levels', 'regulatory_requirements', 
+            'data_classification_levels', 'regulatory_requirements',
             'compliance_requirements', 'stakeholders', 'system_owners',
             'risk_tolerance', 'risk_acceptance_criteria', 'application_type',
             'usage_model', 'functional_overview', 'major_modules', 'user_roles',
@@ -205,38 +259,107 @@ class SecurityAssessmentCreateSerializer(serializers.ModelSerializer):
             'existing_risk_register', 'known_vulnerabilities', 'accepted_risks',
             'architecture_assumptions', 'design_constraints', 'technical_debt_areas'
         ]
-    
+
     def validate_architecture_diagram(self, value):
-        """Validate that architecture diagram is provided and is an image"""
         if not value:
             raise serializers.ValidationError("Architecture diagram is required")
-        
-        # Check file extension
         allowed_extensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'tiff', 'svg', 'pdf']
         ext = value.name.split('.')[-1].lower()
         if ext not in allowed_extensions:
             raise serializers.ValidationError(
                 f"Invalid file type. Allowed types: {', '.join(allowed_extensions)}"
             )
-        
-        # Check file size (max 10MB)
         if value.size > 10 * 1024 * 1024:
             raise serializers.ValidationError("File size must be under 10MB")
-        
         return value
 
 
 class VulnerableComponentUpdateSerializer(serializers.ModelSerializer):
-    """Serializer for updating vulnerable component status"""
-    
     class Meta:
         model = VulnerableComponent
         fields = ['status', 'affected_devices', 'framework_mapping']
-    
+
     def validate_status(self, value):
-        """Validate status transitions"""
         if self.instance and self.instance.status == 'fixed' and value != 'fixed':
             raise serializers.ValidationError(
                 "Cannot reopen a fixed vulnerability. Create a new finding instead."
             )
         return value
+
+
+# ---------------------------------------------------------------------------
+# Feedback
+# ---------------------------------------------------------------------------
+
+class VulnerabilityFeedbackSerializer(serializers.ModelSerializer):
+    """Serializer for submitting and reading vulnerability feedback"""
+
+    class Meta:
+        model = VulnerabilityFeedback
+        fields = [
+            'id', 'created_at', 'updated_at',
+            'vulnerable_component', 'assessment',
+            'feedback_type', 'explanation',
+            'false_positive_reason',
+            'prior_control_name', 'prior_control_description', 'prior_control_evidence',
+            'missed_finding_title', 'missed_finding_description',
+            'missed_finding_severity', 'missed_finding_category',
+            'missed_finding_recommendation',
+            'submitted_by', 'incorporated_in_training',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at', 'incorporated_in_training']
+
+    def validate(self, data):
+        feedback_type = data.get('feedback_type')
+
+        if feedback_type == 'false_positive':
+            if not data.get('vulnerable_component'):
+                raise serializers.ValidationError(
+                    "vulnerable_component is required for false_positive feedback."
+                )
+
+        elif feedback_type == 'prior_control':
+            if not data.get('vulnerable_component'):
+                raise serializers.ValidationError(
+                    "vulnerable_component is required for prior_control feedback."
+                )
+            if not data.get('prior_control_name'):
+                raise serializers.ValidationError(
+                    "prior_control_name is required for prior_control feedback."
+                )
+
+        elif feedback_type == 'missed_finding':
+            if not data.get('assessment'):
+                raise serializers.ValidationError(
+                    "assessment is required for missed_finding feedback."
+                )
+            if not data.get('missed_finding_title'):
+                raise serializers.ValidationError(
+                    "missed_finding_title is required for missed_finding feedback."
+                )
+            if not data.get('missed_finding_severity'):
+                raise serializers.ValidationError(
+                    "missed_finding_severity is required for missed_finding feedback."
+                )
+
+        return data
+
+
+# ---------------------------------------------------------------------------
+# Training job
+# ---------------------------------------------------------------------------
+
+class TrainingJobSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TrainingJob
+        fields = [
+            'id', 'created_at', 'started_at', 'completed_at', 'status',
+            'feedback_count', 'false_positive_count', 'prior_control_count',
+            'missed_finding_count', 'training_summary', 'error_message',
+            # refined_system_prompt intentionally excluded -- internal prompt, not for clients
+        ]
+        read_only_fields = [
+            'id', 'created_at', 'started_at', 'completed_at', 'status',
+            'feedback_count', 'false_positive_count', 'prior_control_count',
+            'missed_finding_count', 'training_summary', 'error_message',
+        ]

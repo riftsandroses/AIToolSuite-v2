@@ -55,3 +55,15 @@ INFO 2026-02-24 16:06:10,005 tasks Cleaned up 0 old scans
 INFO 2026-03-04 11:37:49,643 tasks Cleaned up 0 old scans
 ERROR 2026-03-04 11:37:49,655 tasks Intelligence update failed: No module named 'api_8.utils.threat_intelligence_tc2'
 INFO 2026-03-04 11:37:49,691 tasks Cleaned up 0 old scans
+INFO 2026-03-04 15:09:52,880 startup_service JWT Scanner monitoring started
+INFO 2026-03-04 15:09:52,880 startup_service JWT Scanner auto-service started (interval: 30s)
+INFO 2026-03-04 15:09:52,880 apps JWT Scanner Auto-Service started successfully (post_migrate)
+INFO 2026-03-04 15:09:52,905 startup_service Shutting down JWT Scanner auto-service...
+INFO 2026-03-04 15:11:03,073 startup_service JWT Scanner monitoring started
+INFO 2026-03-04 15:11:03,073 startup_service JWT Scanner auto-service started (interval: 30s)
+INFO 2026-03-04 15:11:03,073 apps JWT Scanner Auto-Service started successfully (post_migrate)
+INFO 2026-03-04 15:11:03,092 startup_service Shutting down JWT Scanner auto-service...
+INFO 2026-03-04 15:59:37,993 startup_service JWT Scanner monitoring started
+INFO 2026-03-04 15:59:37,993 startup_service JWT Scanner auto-service started (interval: 30s)
+INFO 2026-03-04 15:59:37,993 apps JWT Scanner Auto-Service started successfully (post_migrate)
+INFO 2026-03-04 15:59:38,020 startup_service Shutting down JWT Scanner auto-service...

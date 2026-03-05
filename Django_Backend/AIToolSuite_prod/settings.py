@@ -403,6 +403,10 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'api_8.tasks.cleanup_old_scans_tc2',
         'schedule': crontab(hour=2, minute=0),  # Run daily at 2 AM
     },
+    'weekly-security-training': {
+        'task': 'architecture_assessment.tasks.run_weekly_training',
+        'schedule': crontab(hour=2, minute=0, day_of_week=1),  # Every Monday 02:00 UTC
+    },
 }
 CELERYD_FORCE_EXECV = True
 
