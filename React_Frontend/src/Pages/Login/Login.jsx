@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { useDispatch } from 'react-redux';
-import { setAuthCookies, signInUser } from '../../api/auth';
+import { setAuthCookies, signInUser, verifyTOTP, setupTOTP } from '../../api/auth';
 import { loggedInUserSlice } from '../../Store/Slices';
 import Input from "../../Components/Input/Input";
 import Snackbar from '../../Components/Snackbar/Snackbar';
@@ -8,7 +8,6 @@ import { styled } from '@mui/system';
 import HCaptcha from '@hcaptcha/react-hcaptcha';
 
 const siteKey = process.env.REACT_APP_HCAPTCHA_SITE_KEY;
-const baseUrl = process.env.REACT_APP_API_BASE_URL;
 
 const LoginContainer = styled('div')`
   display: flex;
@@ -253,6 +252,11 @@ const Login = () => {
     const [totpEnabled, setTotpEnabled] = useState(false);
     const [hcaptchaToken, setHcaptchaToken] = useState("");
 
+    // Holds the short-lived pre-auth token returned after successful password check.
+    // Stored only in component state (never in cookies/localStorage) so it cannot
+    // be read or replayed outside this session.
+    const [preAuthToken, setPreAuthToken] = useState("");
+
     const [openSnackbar, setOpenSnackbar] = useState(false);
     const [snackbarDetails, setSnackbarDetails] = useState({
         type: "",
@@ -311,6 +315,10 @@ const Login = () => {
             });
 
             if (response.requires_totp) {
+                // Store the server-issued pre-auth token in component state.
+                // This proves the password step was completed server-side and is
+                // required by the TOTP endpoints to prevent authentication bypass.
+                setPreAuthToken(response.pre_auth_token || "");
                 setQrCode(response.qr_code);
                 setTotpEnabled(response.totp_enabled);
 
@@ -320,7 +328,7 @@ const Login = () => {
                     setStep('setup');
                 }
             } else {
-                // Regular login without TOTP
+                // Regular login without TOTP (future-proofing)
                 await completeLogin(response);
             }
         } catch (error) {
@@ -351,26 +359,22 @@ const Login = () => {
         setErrorMsg("");
 
         try {
-            const response = await fetch(`${baseUrl}/api/v1/login/totp/setup/`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    email: userCreds.email,
-                    totp_token: totpToken
-                })
+            const data = await setupTOTP({
+                email: userCreds.email,
+                totp_token: totpToken,
+                pre_auth_token: preAuthToken,
             });
-
-            const data = await response.json();
-
-            if (response.ok) {
-                await completeLogin(data);
-            } else {
-                setErrorMsg(data.error || "TOTP setup failed. Please try again.");
-            }
+            await completeLogin(data);
         } catch (error) {
-            setErrorMsg("TOTP setup failed. Please try again.");
+            const msg = error.response?.data?.error || error.message || "TOTP setup failed. Please try again.";
+            // If the pre-auth token expired, send the user back to re-authenticate
+            if (msg === "Invalid request") {
+                setSnackbarDetails({ type: "error", message: "Session expired. Please log in again." });
+                setOpenSnackbar(true);
+                handleBackToLogin();
+            } else {
+                setErrorMsg(msg);
+            }
         } finally {
             setIsLoading(false);
         }
@@ -392,26 +396,22 @@ const Login = () => {
         setErrorMsg("");
 
         try {
-            const response = await fetch(`${baseUrl}/api/v1/login/totp/verify/`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    email: userCreds.email,
-                    totp_token: totpToken
-                })
+            const data = await verifyTOTP({
+                email: userCreds.email,
+                totp_token: totpToken,
+                pre_auth_token: preAuthToken,
             });
-
-            const data = await response.json();
-
-            if (response.ok) {
-                await completeLogin(data);
-            } else {
-                setErrorMsg(data.error || "Invalid code. Please try again.");
-            }
+            await completeLogin(data);
         } catch (error) {
-            setErrorMsg("Verification failed. Please try again.");
+            const msg = error.response?.data?.error || error.message || "Verification failed. Please try again.";
+            // If the pre-auth token expired, send the user back to re-authenticate
+            if (msg === "Invalid request") {
+                setSnackbarDetails({ type: "error", message: "Session expired. Please log in again." });
+                setOpenSnackbar(true);
+                handleBackToLogin();
+            } else {
+                setErrorMsg(msg);
+            }
         } finally {
             setIsLoading(false);
         }
@@ -465,7 +465,7 @@ const Login = () => {
         setTotpToken("");
         setQrCode("");
         setErrorMsg("");
-        // Reset captcha when going back to login
+        setPreAuthToken(""); // Clear pre-auth token when going back
         if (captchaRef.current) {
             captchaRef.current.resetCaptcha();
         }

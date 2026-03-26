@@ -7,6 +7,7 @@ from .models import (
     AssessmentHistory,
     VulnerabilityFeedback,
     TrainingJob,
+    TokenUsage,
 )
 
 
@@ -30,23 +31,14 @@ class EvidenceFileSerializer(serializers.ModelSerializer):
 
 class RemediationControlSerializer(serializers.ModelSerializer):
     """
-    Serializer for remediation controls.
-
     Writable by clients:
         control_name, control_description, implementation_details, status,
         verification_notes, verified_by, verified_at
 
-    Read-only (AI-populated - never submit these):
-        risk_reduction_percentage  -- calculated by AI from evidence + vulnerability context
-        risk_reduction_reasoning   -- AI explanation of the calculated percentage
-        evidence_verification_result, evidence_verified_at, evidence_verification_passed
-        evidence_attachments       -- EvidenceFile records created server-side
-
-    Evidence files MUST be uploaded as multipart field 'files' on:
-        POST /api/vulnerabilities/{id}/controls/
-        PATCH /api/controls/{id}/
-        POST /api/controls/{id}/evidence/
-    At least one evidence file is REQUIRED when creating a control.
+    Read-only (AI-populated):
+        risk_reduction_percentage, risk_reduction_reasoning,
+        evidence_verification_result, evidence_verified_at, evidence_verification_passed,
+        evidence_attachments
     """
     evidence_attachments = EvidenceFileSerializer(many=True, read_only=True)
 
@@ -55,19 +47,15 @@ class RemediationControlSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'control_name', 'control_description',
             'implementation_details', 'status',
-            # AI-calculated -- read-only
             'risk_reduction_percentage', 'risk_reduction_reasoning',
             'verification_notes', 'verified_by', 'verified_at',
-            # AI evidence verification results -- read-only
             'evidence_verification_result', 'evidence_verified_at',
             'evidence_verification_passed',
-            # All attached evidence files -- read-only
             'evidence_attachments',
             'created_at', 'updated_at'
         ]
         read_only_fields = [
             'id', 'created_at', 'updated_at',
-            # Clients must never submit these -- AI sets them
             'risk_reduction_percentage', 'risk_reduction_reasoning',
             'evidence_verification_result', 'evidence_verified_at',
             'evidence_verification_passed',
@@ -79,8 +67,6 @@ class RemediationControlSerializer(serializers.ModelSerializer):
 # ---------------------------------------------------------------------------
 
 class VulnerableComponentSerializer(serializers.ModelSerializer):
-    """Serializer for vulnerable components/findings"""
-
     remediation_controls = RemediationControlSerializer(many=True, read_only=True)
     remediation_count = serializers.SerializerMethodField()
     is_remediated = serializers.SerializerMethodField()
@@ -92,7 +78,6 @@ class VulnerableComponentSerializer(serializers.ModelSerializer):
             'control_recommendation', 'severity', 'status', 'affected_devices',
             'category_tag', 'framework_mapping', 'cvss_score', 'cwe_id',
             'owasp_category',
-            # Severity auto-calculation metadata
             'severity_reasoning', 'severity_last_calculated_at',
             'remediation_controls', 'remediation_count',
             'is_remediated', 'created_at', 'updated_at'
@@ -152,13 +137,15 @@ class SecurityAssessmentListSerializer(serializers.ModelSerializer):
     vulnerability_count = serializers.SerializerMethodField()
     critical_count = serializers.SerializerMethodField()
     high_count = serializers.SerializerMethodField()
+    owner_username = serializers.SerializerMethodField()
 
     class Meta:
         model = SecurityAssessment
         fields = [
             'id', 'created_at', 'updated_at', 'status',
             'overall_risk_score', 'vulnerability_count',
-            'critical_count', 'high_count', 'application_purpose'
+            'critical_count', 'high_count', 'application_purpose',
+            'owner_username',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
 
@@ -171,16 +158,20 @@ class SecurityAssessmentListSerializer(serializers.ModelSerializer):
     def get_high_count(self, obj):
         return obj.vulnerable_components.filter(severity='high', status='open').count()
 
+    def get_owner_username(self, obj):
+        return obj.owner.username if obj.owner else None
+
 
 class SecurityAssessmentDetailSerializer(serializers.ModelSerializer):
     vulnerable_components = VulnerableComponentSerializer(many=True, read_only=True)
     history = AssessmentHistorySerializer(many=True, read_only=True)
     vulnerability_summary = serializers.SerializerMethodField()
+    owner_username = serializers.SerializerMethodField()
 
     class Meta:
         model = SecurityAssessment
         fields = '__all__'
-        read_only_fields = ['id', 'created_at', 'updated_at', 'overall_risk_score', 'risk_reasoning']
+        read_only_fields = ['id', 'created_at', 'updated_at', 'overall_risk_score', 'risk_reasoning', 'owner']
 
     def get_vulnerability_summary(self, obj):
         components = obj.vulnerable_components.filter(status='open')
@@ -192,6 +183,9 @@ class SecurityAssessmentDetailSerializer(serializers.ModelSerializer):
             'low': components.filter(severity='low').count(),
             'informational': components.filter(severity='informational').count(),
         }
+
+    def get_owner_username(self, obj):
+        return obj.owner.username if obj.owner else None
 
 
 class SecurityAssessmentCreateSerializer(serializers.ModelSerializer):
@@ -292,7 +286,9 @@ class VulnerableComponentUpdateSerializer(serializers.ModelSerializer):
 # ---------------------------------------------------------------------------
 
 class VulnerabilityFeedbackSerializer(serializers.ModelSerializer):
-    """Serializer for submitting and reading vulnerability feedback"""
+    """Serializer for submitting and reading vulnerability feedback."""
+
+    chroma_vector_id = serializers.CharField(read_only=True)
 
     class Meta:
         model = VulnerabilityFeedback
@@ -305,9 +301,14 @@ class VulnerabilityFeedbackSerializer(serializers.ModelSerializer):
             'missed_finding_title', 'missed_finding_description',
             'missed_finding_severity', 'missed_finding_category',
             'missed_finding_recommendation',
-            'submitted_by', 'incorporated_in_training',
+            'submitted_by',
+            'incorporated_in_training',
+            'chroma_vector_id',  # read-only, shows whether it's been indexed
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at', 'incorporated_in_training']
+        read_only_fields = [
+            'id', 'created_at', 'updated_at',
+            'incorporated_in_training', 'chroma_vector_id',
+        ]
 
     def validate(self, data):
         feedback_type = data.get('feedback_type')
@@ -355,11 +356,41 @@ class TrainingJobSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'created_at', 'started_at', 'completed_at', 'status',
             'feedback_count', 'false_positive_count', 'prior_control_count',
-            'missed_finding_count', 'training_summary', 'error_message',
-            # refined_system_prompt intentionally excluded -- internal prompt, not for clients
+            'missed_finding_count', 'chroma_indexed_count',
+            'training_summary', 'error_message',
+            # refined_system_prompt intentionally excluded — internal prompt, not for API clients
         ]
         read_only_fields = [
             'id', 'created_at', 'started_at', 'completed_at', 'status',
             'feedback_count', 'false_positive_count', 'prior_control_count',
-            'missed_finding_count', 'training_summary', 'error_message',
+            'missed_finding_count', 'chroma_indexed_count',
+            'training_summary', 'error_message',
         ]
+
+
+# ---------------------------------------------------------------------------
+# Token usage
+# ---------------------------------------------------------------------------
+
+class TokenUsageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TokenUsage
+        fields = [
+            'id', 'created_at', 'operation', 'model_name',
+            'prompt_tokens', 'completion_tokens', 'total_tokens',
+            'estimated_cost_usd', 'assessment', 'training_job',
+        ]
+        read_only_fields = fields
+
+
+class TokenUsageStatsSerializer(serializers.Serializer):
+    """
+    Serializer for the aggregated token usage stats returned by
+    AssessmentStatisticsView. Used for documentation / validation only;
+    the view constructs the response dict directly.
+    """
+    user = serializers.CharField()
+    summary = serializers.DictField()
+    by_operation = serializers.ListField(child=serializers.DictField())
+    by_model = serializers.ListField(child=serializers.DictField())
+    daily_usage_last_30_days = serializers.ListField(child=serializers.DictField())

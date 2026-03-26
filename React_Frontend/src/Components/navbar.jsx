@@ -24,64 +24,29 @@ import LogoutIcon from "@mui/icons-material/Logout";
 import CloseIcon from "@mui/icons-material/Close";
 import { useMediaQuery, useTheme } from "@mui/material";
 import { Link, useNavigate } from "react-router-dom";
-import { getAuthCookies, deleteAuthCookies } from "../api/auth";
+import { getAuthCookies, deleteAuthCookies, signOutUser } from "../api/auth";
 
 export default function Navbar() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
   const navigate = useNavigate();
 
-  // Auth state
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
-  // Desktop dropdown states
   const [insightsLabAnchorEl, setInsightsLabAnchorEl] = useState(null);
   const [attackLabAnchorEl, setAttackLabAnchorEl] = useState(null);
   const [windowLabAnchorEl, setWindowLabAnchorEl] = useState(null);
-  const [userMenuAnchorEl, setUserMenuAnchorEl] = useState(null);
 
-  // Mobile menu state
   const [mobileOpen, setMobileOpen] = useState(false);
   const [insightsLabOpen, setInsightsLabOpen] = useState(false);
   const [attackLabOpen, setAttackLabOpen] = useState(false);
   const [windowLabOpen, setWindowLabOpen] = useState(false);
 
-  // Check authentication status
   useEffect(() => {
     const token = getAuthCookies().accessToken;
     setIsAuthenticated(!!token);
   }, []);
 
-  // Desktop dropdown handlers
-  const handleInsightsLabMenuOpen = (event) => {
-    setInsightsLabAnchorEl(event.currentTarget);
-  };
-
-  const handleInsightsLabMenuClose = () => {
-    setInsightsLabAnchorEl(null);
-  };
-
-  const handleAttackLabMenuOpen = (event) => {
-    setAttackLabAnchorEl(event.currentTarget);
-  };
-
-  const handleAttackLabMenuClose = () => {
-    setAttackLabAnchorEl(null);
-  };
-
-  const handleWindowLabMenuOpen = (event) => {
-    setWindowLabAnchorEl(event.currentTarget);
-  };
-
-  const handleWindowLabMenuClose = () => {
-    setWindowLabAnchorEl(null);
-  };
-
-  const handleUserMenuClose = () => {
-    setUserMenuAnchorEl(null);
-  };
-
-  // Mobile drawer handlers
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
   };
@@ -98,7 +63,11 @@ export default function Navbar() {
     setWindowLabOpen(!windowLabOpen);
   };
 
-  // Navigation handlers
+  const handleArchitectureAssessmentClick = () => {
+    navigate("/architecture-assessment");
+    setMobileOpen(false);
+  };
+
   const handleRiskAssessmentClick = () => {
     navigate("/risk-assessment");
     setMobileOpen(false);
@@ -109,574 +78,240 @@ export default function Navbar() {
     setMobileOpen(false);
   };
 
-  // **NEW**: Handler for API Pentest button
   const handleApiPentestClick = () => {
     navigate("/api-pentest");
-    setMobileOpen(false);
-  };
-
-  const handleArchitectureAssessmentClick = () => {
-    navigate("/architecture-assessment");
     setMobileOpen(false);
   };
 
   const handleLoginClick = () => {
     navigate("/login");
     setMobileOpen(false);
-    handleUserMenuClose();
   };
 
-  const handleLogoutClick = () => {
-    deleteAuthCookies();
-    setIsAuthenticated(false);
-    window.location.href = "/";
-    setMobileOpen(false);
-    handleUserMenuClose();
+  const handleLogoutClick = async () => {
+    try {
+      await signOutUser();  // ✅ wait for backend
+    } catch (error) {
+      console.error("Logout failed:", error.response?.data || error.message);
+    } finally {
+      deleteAuthCookies();     // ✅ clear tokens AFTER
+      setIsAuthenticated(false);
+      navigate("/login");
+    }
   };
 
-  const handleMenuItemClick = (callback) => {
-    return () => {
-      callback();
-      setMobileOpen(false);
-    };
-  };
-
-  // Desktop navbar
   const desktopNavbar = (
     <>
-      <Button
-        color="inherit"
-        aria-controls="insights-lab-menu"
-        aria-haspopup="true"
-        onClick={handleInsightsLabMenuOpen}
-        endIcon={<ExpandMoreIcon />}
-        sx={{
-          mr: 2,
-          textTransform: "none",
-          fontWeight: 500,
-          fontSize: "0.95rem",
-          "&:hover": {
-            backgroundColor: "rgba(255, 255, 255, 0.08)",
-            transition: "all 0.3s ease",
-          },
-        }}
-      >
-        Reports & Insights Lab
-      </Button>
-      <Menu
-        id="insights-lab-menu"
-        anchorEl={insightsLabAnchorEl}
-        keepMounted
-        open={Boolean(insightsLabAnchorEl)}
-        onClose={handleInsightsLabMenuClose}
-        MenuListProps={{
-          "aria-labelledby": "insights-lab-button",
-        }}
-        PaperProps={{
-          elevation: 8,
-          sx: {
-            mt: 1.5,
-            borderRadius: 2,
-            minWidth: 200,
-            "& .MuiMenuItem-root": {
-              fontSize: "0.9rem",
-              py: 1.5,
-              "&:hover": {
-                backgroundColor: "rgba(144, 202, 249, 0.12)",
-                transition: "all 0.2s ease",
-              },
-            },
-          },
-        }}
-      >
-        <Link to="/llm-vulnerability-scanner-report" style={{ textDecoration: "none", color: "inherit" }}>
-          <MenuItem onClick={handleInsightsLabMenuClose}>AI Attack Report</MenuItem>
-        </Link>
-      </Menu>
-
-      <Button
-        color="inherit"
-        aria-controls="window-lab-menu"
-        aria-haspopup="true"
-        onClick={handleWindowLabMenuOpen}
-        endIcon={<ExpandMoreIcon />}
-        sx={{
-          mr: 2,
-          textTransform: "none",
-          fontWeight: 500,
-          fontSize: "0.95rem",
-          "&:hover": {
-            backgroundColor: "rgba(255, 255, 255, 0.08)",
-            transition: "all 0.3s ease",
-          },
-        }}
-      >
-        Windows Attack Lab
-      </Button>
-      <Menu
-        id="window-lab-menu"
-        anchorEl={windowLabAnchorEl}
-        keepMounted
-        open={Boolean(windowLabAnchorEl)}
-        onClose={handleWindowLabMenuClose}
-        MenuListProps={{
-          "aria-labelledby": "window-lab-button",
-        }}
-        PaperProps={{
-          elevation: 8,
-          sx: {
-            mt: 1.5,
-            borderRadius: 2,
-            minWidth: 200,
-            "& .MuiMenuItem-root": {
-              fontSize: "0.9rem",
-              py: 1.5,
-              "&:hover": {
-                backgroundColor: "rgba(144, 202, 249, 0.12)",
-                transition: "all 0.2s ease",
-              },
-            },
-          },
-        }}
-      >
-        <Link to="/dll" style={{ textDecoration: "none", color: "inherit" }}>
-          <MenuItem onClick={handleWindowLabMenuClose}>DLL Hijacker (AI Agent)</MenuItem>
-        </Link>
-      </Menu>
-
-      <Button
-        color="inherit"
-        aria-controls="attack-lab-menu"
-        aria-haspopup="true"
-        onClick={handleAttackLabMenuOpen}
-        endIcon={<ExpandMoreIcon />}
-        sx={{
-          mr: 2,
-          textTransform: "none",
-          fontWeight: 500,
-          fontSize: "0.95rem",
-          "&:hover": {
-            backgroundColor: "rgba(255, 255, 255, 0.08)",
-            transition: "all 0.3s ease",
-          },
-        }}
-      >
-        AI Attack Lab
-      </Button>
-      <Menu
-        id="attack-lab-menu"
-        anchorEl={attackLabAnchorEl}
-        keepMounted
-        open={Boolean(attackLabAnchorEl)}
-        onClose={handleAttackLabMenuClose}
-        MenuListProps={{
-          "aria-labelledby": "attack-lab-button",
-        }}
-        PaperProps={{
-          elevation: 8,
-          sx: {
-            mt: 1.5,
-            borderRadius: 2,
-            minWidth: 200,
-            "& .MuiMenuItem-root": {
-              fontSize: "0.9rem",
-              py: 1.5,
-              "&:hover": {
-                backgroundColor: "rgba(144, 202, 249, 0.12)",
-                transition: "all 0.2s ease",
-              },
-            },
-          },
-        }}
-      >
-        <Link to="/llm-vulnerability-scanner" style={{ textDecoration: "none", color: "inherit" }}>
-          <MenuItem onClick={handleAttackLabMenuClose}>AI Attack Tester</MenuItem>
-        </Link>
-      </Menu>
-
-      <Button
-        color="inherit"
-        onClick={handleRiskAssessmentClick}
-        sx={{
-          mr: 2,
-          textTransform: "none",
-          fontWeight: 500,
-          fontSize: "0.95rem",
-          "&:hover": {
-            backgroundColor: "rgba(255, 255, 255, 0.08)",
-            transition: "all 0.3s ease",
-          },
-        }}
-      >
-        Architecture Risk Assessment Lab
-      </Button>
-
-      <Button
-        color="inherit"
-        onClick={handleThreatModelClick}
-        sx={{
-          mr: 2, // Changed from 3 to 2 for consistent spacing
-          textTransform: "none",
-          fontWeight: 500,
-          fontSize: "0.95rem",
-          "&:hover": {
-            backgroundColor: "rgba(255, 255, 255, 0.08)",
-            transition: "all 0.3s ease",
-          },
-        }}
-      >
-        Threat Model
-      </Button>
-
-      <Button
-        color="inherit"
-        onClick={handleArchitectureAssessmentClick}
-        sx={{
-          mr: 2,
-          textTransform: "none",
-          fontWeight: 500,
-          fontSize: "0.95rem",
-          "&:hover": {
-            backgroundColor: "rgba(255, 255, 255, 0.08)",
-            transition: "all 0.3s ease",
-          },
-        }}
-      >
+      <Button color="inherit" onClick={handleArchitectureAssessmentClick} sx={{ mr: 2, textTransform: "none" }}>
         Architecture Assessment
       </Button>
 
-      {/* **NEW**: API Pentest Button */}
+      {/* <Button color="inherit" onClick={handleRiskAssessmentClick} sx={{ mr: 2, textTransform: "none" }}>
+        Architecture Risk Assessment Lab
+      </Button> */}
+
+      <Button color="inherit" onClick={handleThreatModelClick} sx={{ mr: 2, textTransform: "none" }}>
+        Threat Model
+      </Button>
+
+      {/* AI Attack Lab */}
       <Button
         color="inherit"
-        onClick={handleApiPentestClick}
-        sx={{
-          mr: 3,
-          textTransform: "none",
-          fontWeight: 500,
-          fontSize: "0.95rem",
-          "&:hover": {
-            backgroundColor: "rgba(255, 255, 255, 0.08)",
-            transition: "all 0.3s ease",
-          },
-        }}
+        onClick={(e) => setAttackLabAnchorEl(e.currentTarget)}
+        endIcon={<ExpandMoreIcon />}
+        sx={{ mr: 2, textTransform: "none" }}
       >
+        AI Attack Lab
+      </Button>
+
+      <Menu
+        anchorEl={attackLabAnchorEl}
+        open={Boolean(attackLabAnchorEl)}
+        onClose={() => setAttackLabAnchorEl(null)}
+      >
+        <Link to="/llm-vulnerability-scanner" style={{ textDecoration: "none", color: "inherit" }}>
+          <MenuItem onClick={() => setAttackLabAnchorEl(null)}>
+            AI Attack Tester
+          </MenuItem>
+        </Link>
+      </Menu>
+
+      {/* Reports & Insights */}
+      <Button
+        color="inherit"
+        onClick={(e) => setInsightsLabAnchorEl(e.currentTarget)}
+        endIcon={<ExpandMoreIcon />}
+        sx={{ mr: 2, textTransform: "none" }}
+      >
+        Reports & Insights Lab
+      </Button>
+
+      <Menu
+        anchorEl={insightsLabAnchorEl}
+        open={Boolean(insightsLabAnchorEl)}
+        onClose={() => setInsightsLabAnchorEl(null)}
+      >
+        <Link to="/llm-vulnerability-scanner-report" style={{ textDecoration: "none", color: "inherit" }}>
+          <MenuItem onClick={() => setInsightsLabAnchorEl(null)}>
+            AI Attack Report
+          </MenuItem>
+        </Link>
+      </Menu>
+
+      {/* API Pentest */}
+      <Button color="inherit" onClick={handleApiPentestClick} sx={{ mr: 2, textTransform: "none" }}>
         API Pentest
       </Button>
 
-      {/* User Menu */}
+      {/* Windows Attack Lab */}
+      <Button
+        color="inherit"
+        onClick={(e) => setWindowLabAnchorEl(e.currentTarget)}
+        endIcon={<ExpandMoreIcon />}
+        sx={{ mr: 3, textTransform: "none" }}
+      >
+        Windows Attack Lab
+      </Button>
+
+      <Menu
+        anchorEl={windowLabAnchorEl}
+        open={Boolean(windowLabAnchorEl)}
+        onClose={() => setWindowLabAnchorEl(null)}
+      >
+        <Link to="/dll" style={{ textDecoration: "none", color: "inherit" }}>
+          <MenuItem onClick={() => setWindowLabAnchorEl(null)}>
+            DLL Hijacker (AI Agent)
+          </MenuItem>
+        </Link>
+      </Menu>
+
       {isAuthenticated ? (
-        <Button
-          color="inherit"
-          onClick={handleLogoutClick}
-          startIcon={<LoginIcon />}
-          sx={{
-            textTransform: "none",
-            fontWeight: 500,
-            fontSize: "0.95rem",
-            px: 2,
-            "&:hover": {
-              backgroundColor: "rgba(255, 57, 57, 0.08)",
-              borderColor: "rgba(255, 255, 255, 0.5)",
-              transition: "all 0.3s ease",
-              color: "rgba(255, 57, 57, 0.987)"
-            },
-          }}
-        >
+        <Button color="inherit" onClick={handleLogoutClick} startIcon={<LogoutIcon />}>
           Logout
         </Button>
       ) : (
-        <Button
-          color="inherit"
-          onClick={handleLoginClick}
-          startIcon={<LoginIcon />}
-          sx={{
-            textTransform: "none",
-            fontWeight: 500,
-            fontSize: "0.95rem",
-            px: 2,
-            "&:hover": {
-              backgroundColor: "rgba(255, 255, 255, 0.08)",
-              borderColor: "rgba(255, 255, 255, 0.5)",
-              transition: "all 0.3s ease",
-              color: "primary.main",
-            },
-          }}
-        >
+        <Button color="inherit" onClick={handleLoginClick} startIcon={<LoginIcon />}>
           Login
         </Button>
       )}
     </>
   );
 
-  // Mobile drawer content
   const mobileDrawer = (
-    <Box sx={{ width: 300, height: "100%" }}>
-      {/* Drawer Header */}
-      <Box sx={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        p: 2,
-        borderBottom: "1px solid rgba(255, 255, 255, 0.12)"
-      }}>
-        <Typography variant="h6" sx={{ fontWeight: 600, color: "primary.main" }}>
-          AI Security Suite
-        </Typography>
-        <IconButton onClick={handleDrawerToggle} sx={{ color: "text.secondary" }}>
+    <Box sx={{ width: 300 }}>
+      <Box
+        sx={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          p: 2,
+          borderBottom: "1px solid rgba(255,255,255,0.1)",
+        }}
+      >
+        <Typography variant="h6">AI Security Suite</Typography>
+        <IconButton onClick={handleDrawerToggle}>
           <CloseIcon />
         </IconButton>
       </Box>
 
-      <List sx={{ pt: 1 }}>
-        {/* Reports & Insights Lab */}
-        <ListItem disablePadding>
-          <ListItemButton
-            onClick={toggleInsightsLabMenu}
-            sx={{
-              textAlign: "left",
-              py: 1.5,
-              "&:hover": {
-                backgroundColor: "rgba(144, 202, 249, 0.08)",
-              },
-            }}
-          >
-            <ListItemText
-              primary="Reports & Insights Lab"
-              primaryTypographyProps={{ fontWeight: 500 }}
-            />
-            {insightsLabOpen ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-          </ListItemButton>
-        </ListItem>
-        <Collapse in={insightsLabOpen} timeout="auto" unmountOnExit>
-          <List component="div" disablePadding>
-            <Link to="/llm-vulnerability-scanner-report" style={{ textDecoration: "none", color: "inherit" }}>
-              <ListItemButton
-                sx={{
-                  pl: 4,
-                  py: 1,
-                  "&:hover": {
-                    backgroundColor: "rgba(144, 202, 249, 0.08)",
-                  },
-                }}
-                onClick={handleMenuItemClick(() => { })}
-              >
-                <ListItemText
-                  primary="AI Attack Report"
-                  primaryTypographyProps={{ fontSize: "0.9rem" }}
-                />
-              </ListItemButton>
-            </Link>
-          </List>
-        </Collapse>
+      <List>
 
-        {/* Windows Attack Lab */}
         <ListItem disablePadding>
-          <ListItemButton
-            onClick={toggleWindowLabMenu}
-            sx={{
-              textAlign: "left",
-              py: 1.5,
-              "&:hover": {
-                backgroundColor: "rgba(144, 202, 249, 0.08)",
-              },
-            }}
-          >
-            <ListItemText
-              primary="Windows Attack Lab"
-              primaryTypographyProps={{ fontWeight: 500 }}
-            />
-            {windowLabOpen ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+          <ListItemButton onClick={handleArchitectureAssessmentClick}>
+            <ListItemText primary="Architecture Assessment" />
           </ListItemButton>
         </ListItem>
-        <Collapse in={windowLabOpen} timeout="auto" unmountOnExit>
-          <List component="div" disablePadding>
-            <Link to="/dll" style={{ textDecoration: "none", color: "inherit" }}>
-              <ListItemButton
-                sx={{
-                  pl: 4,
-                  py: 1,
-                  "&:hover": {
-                    backgroundColor: "rgba(144, 202, 249, 0.08)",
-                  },
-                }}
-                onClick={handleMenuItemClick(() => { })}
-              >
-                <ListItemText
-                  primary="DLL Hijacker (AI Agent)"
-                  primaryTypographyProps={{ fontSize: "0.9rem" }}
-                />
-              </ListItemButton>
-            </Link>
-          </List>
-        </Collapse>
+
+        <ListItem disablePadding>
+          <ListItemButton onClick={handleRiskAssessmentClick}>
+            <ListItemText primary="Architecture Risk Assessment Lab" />
+          </ListItemButton>
+        </ListItem>
+
+        <ListItem disablePadding>
+          <ListItemButton onClick={handleThreatModelClick}>
+            <ListItemText primary="Threat Model" />
+          </ListItemButton>
+        </ListItem>
 
         {/* AI Attack Lab */}
         <ListItem disablePadding>
-          <ListItemButton
-            onClick={toggleAttackLabMenu}
-            sx={{
-              textAlign: "left",
-              py: 1.5,
-              "&:hover": {
-                backgroundColor: "rgba(144, 202, 249, 0.08)",
-              },
-            }}
-          >
-            <ListItemText
-              primary="AI Attack Lab"
-              primaryTypographyProps={{ fontWeight: 500 }}
-            />
+          <ListItemButton onClick={toggleAttackLabMenu}>
+            <ListItemText primary="AI Attack Lab" />
             {attackLabOpen ? <ExpandLessIcon /> : <ExpandMoreIcon />}
           </ListItemButton>
         </ListItem>
-        <Collapse in={attackLabOpen} timeout="auto" unmountOnExit>
+
+        <Collapse in={attackLabOpen}>
           <List component="div" disablePadding>
             <Link to="/llm-vulnerability-scanner" style={{ textDecoration: "none", color: "inherit" }}>
-              <ListItemButton
-                sx={{
-                  pl: 4,
-                  py: 1,
-                  "&:hover": {
-                    backgroundColor: "rgba(144, 202, 249, 0.08)",
-                  },
-                }}
-                onClick={handleMenuItemClick(() => { })}
-              >
-                <ListItemText
-                  primary="AI Attack Tester"
-                  primaryTypographyProps={{ fontSize: "0.9rem" }}
-                />
+              <ListItemButton sx={{ pl: 4 }}>
+                <ListItemText primary="AI Attack Tester" />
               </ListItemButton>
             </Link>
           </List>
         </Collapse>
 
-        {/* Risk Assessment Lab */}
+        {/* Reports */}
         <ListItem disablePadding>
-          <Link to="/risk-assessment" style={{ textDecoration: "none", color: "inherit" }}>
-            <ListItemButton
-              sx={{
-                textAlign: "left",
-                py: 1.5,
-                "&:hover": {
-                  backgroundColor: "rgba(144, 202, 249, 0.08)",
-                },
-              }}
-              onClick={handleMenuItemClick(handleRiskAssessmentClick)}
-            >
-              <ListItemText
-                primary="Risk Assessment Lab"
-                primaryTypographyProps={{ fontWeight: 500 }}
-              />
-            </ListItemButton>
-          </Link>
+          <ListItemButton onClick={toggleInsightsLabMenu}>
+            <ListItemText primary="Reports & Insights Lab" />
+            {insightsLabOpen ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+          </ListItemButton>
         </ListItem>
 
-        {/* Threat Model */}
+        <Collapse in={insightsLabOpen}>
+          <List component="div" disablePadding>
+            <Link to="/llm-vulnerability-scanner-report" style={{ textDecoration: "none", color: "inherit" }}>
+              <ListItemButton sx={{ pl: 4 }}>
+                <ListItemText primary="AI Attack Report" />
+              </ListItemButton>
+            </Link>
+          </List>
+        </Collapse>
+
         <ListItem disablePadding>
-          <Link to="/threat-model" style={{ textDecoration: "none", color: "inherit" }}>
-            <ListItemButton
-              sx={{
-                textAlign: "left",
-                py: 1.5,
-                "&:hover": {
-                  backgroundColor: "rgba(144, 202, 249, 0.08)",
-                },
-              }}
-              onClick={handleMenuItemClick(handleThreatModelClick)}
-            >
-              <ListItemText
-                primary="Threat Model"
-                primaryTypographyProps={{ fontWeight: 500 }}
-              />
-            </ListItemButton>
-          </Link>
+          <ListItemButton onClick={handleApiPentestClick}>
+            <ListItemText primary="API Pentest" />
+          </ListItemButton>
         </ListItem>
 
-        {/* Architecture Assessment */}
+        {/* Windows Attack */}
         <ListItem disablePadding>
-          <Link to="/architecture-assessment" style={{ textDecoration: "none", color: "inherit" }}>
-            <ListItemButton
-              sx={{
-                textAlign: "left",
-                py: 1.5,
-                "&:hover": {
-                  backgroundColor: "rgba(144, 202, 249, 0.08)",
-                },
-              }}
-              onClick={handleMenuItemClick(handleArchitectureAssessmentClick)}
-            >
-              <ListItemText
-                primary="Architecture Assessment"
-                primaryTypographyProps={{ fontWeight: 500 }}
-              />
-            </ListItemButton>
-          </Link>
+          <ListItemButton onClick={toggleWindowLabMenu}>
+            <ListItemText primary="Windows Attack Lab" />
+            {windowLabOpen ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+          </ListItemButton>
         </ListItem>
 
-        {/* **NEW**: API Pentest Item */}
-        <ListItem disablePadding>
-          <Link to="/api-pentest" style={{ textDecoration: "none", color: "inherit" }}>
-            <ListItemButton
-              sx={{
-                textAlign: "left",
-                py: 1.5,
-                "&:hover": {
-                  backgroundColor: "rgba(144, 202, 249, 0.08)",
-                },
-              }}
-              onClick={handleMenuItemClick(handleApiPentestClick)}
-            >
-              <ListItemText
-                primary="API Pentest"
-                primaryTypographyProps={{ fontWeight: 500 }}
-              />
-            </ListItemButton>
-          </Link>
-        </ListItem>
+        <Collapse in={windowLabOpen}>
+          <List component="div" disablePadding>
+            <Link to="/dll" style={{ textDecoration: "none", color: "inherit" }}>
+              <ListItemButton sx={{ pl: 4 }}>
+                <ListItemText primary="DLL Hijacker (AI Agent)" />
+              </ListItemButton>
+            </Link>
+          </List>
+        </Collapse>
 
         <Divider sx={{ my: 2 }} />
 
-        {/* Login/Logout */}
         {isAuthenticated ? (
           <ListItem disablePadding>
-            <ListItemButton
-              onClick={handleMenuItemClick(handleLogoutClick)}
-              sx={{
-                textAlign: "left",
-                py: 1.5,
-                "&:hover": {
-                  backgroundColor: "rgba(244, 67, 54, 0.08)",
-                },
-              }}
-            >
-              <LogoutIcon sx={{ mr: 2, color: "error.main" }} />
-              <ListItemText
-                primary="Logout"
-                primaryTypographyProps={{ fontWeight: 500, color: "error.main" }}
-              />
+            <ListItemButton onClick={handleLogoutClick}>
+              <LogoutIcon sx={{ mr: 2 }} />
+              <ListItemText primary="Logout" />
             </ListItemButton>
           </ListItem>
         ) : (
           <ListItem disablePadding>
-            <ListItemButton
-              onClick={handleMenuItemClick(handleLoginClick)}
-              sx={{
-                textAlign: "left",
-                py: 1.5,
-                "&:hover": {
-                  backgroundColor: "rgba(144, 202, 249, 0.08)",
-                },
-              }}
-            >
-              <LoginIcon sx={{ mr: 2, color: "primary.main" }} />
-              <ListItemText
-                primary="Login"
-                primaryTypographyProps={{ fontWeight: 500, color: "primary.main" }}
-              />
+            <ListItemButton onClick={handleLoginClick}>
+              <LoginIcon sx={{ mr: 2 }} />
+              <ListItemText primary="Login" />
             </ListItemButton>
           </ListItem>
         )}
+
       </List>
     </Box>
   );
@@ -687,76 +322,43 @@ export default function Navbar() {
         position="static"
         color="transparent"
         elevation={0}
-        sx={{
-          borderBottom: "1px solid rgba(255, 255, 255, 0.12)",
-          backdropFilter: "blur(10px)",
-        }}
+        sx={{ borderBottom: "1px solid rgba(255,255,255,0.1)" }}
       >
-        <Toolbar sx={{ px: { xs: 2, sm: 3 } }}>
+        <Toolbar>
+
           <Box
-            component="div"
+            component={Link}
+            to="/"
             sx={{
-              flexGrow: 1,
-              display: "flex",
-              alignItems: "center",
+              fontWeight: 700,
+              fontSize: "1.3rem",
+              textDecoration: "none",
+              color: "primary.main",
+              mr: 4,
             }}
           >
-            <Box
-              component={Link}
-              to="/"
-              sx={{
-                fontWeight: 700,
-                fontSize: "1.4rem",
-                color: "primary.main",
-                mr: 4,
-                textDecoration: "none",
-                "&:hover": {
-                  opacity: 0.8,
-                  transition: "opacity 0.3s ease",
-                },
-              }}
-            >
-              AI Security Suite
-            </Box>
-
-            {isMobile ? (
-              <IconButton
-                color="inherit"
-                aria-label="open drawer"
-                edge="start"
-                onClick={handleDrawerToggle}
-                sx={{
-                  ml: "auto",
-                  "&:hover": {
-                    backgroundColor: "rgba(255, 255, 255, 0.08)",
-                  },
-                }}
-              >
-                <MenuIcon />
-              </IconButton>
-            ) : (
-              <Box sx={{ display: "flex", alignItems: "center", ml: "auto" }}>
-                {desktopNavbar}
-              </Box>
-            )}
+            AI Security Suite
           </Box>
+
+          {isMobile ? (
+            <IconButton sx={{ ml: "auto" }} onClick={handleDrawerToggle}>
+              <MenuIcon />
+            </IconButton>
+          ) : (
+            <Box sx={{ display: "flex", ml: "auto", alignItems: "center" }}>
+              {desktopNavbar}
+            </Box>
+          )}
         </Toolbar>
       </AppBar>
 
-      {/* Mobile Navigation Drawer */}
       <Drawer
         variant="temporary"
         open={mobileOpen}
         onClose={handleDrawerToggle}
-        ModalProps={{
-          keepMounted: true,
-        }}
         sx={{
-          display: { xs: "block", md: "none" },
           "& .MuiDrawer-paper": {
-            boxSizing: "border-box",
             width: 300,
-            backgroundColor: "background.paper",
           },
         }}
       >

@@ -29,7 +29,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure-ryl-i5*s=s9o$l_=(okg1r^3fbp=kl3zxvl_d4xh!8u#%iz2k%'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = False
 
 ALLOWED_HOSTS = ['api.aitoolsuite.xyz', 'localhost', '127.0.0.1','aitoolsuite.xyz']
 
@@ -202,11 +202,11 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = 40 * 1024 * 1024  # 10MB
 CHROMADB_PATH = os.path.join(BASE_DIR, 'chroma_db')
 
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),  # Update to 15 minutes in production
-    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=2),  # Update to 2 minutes in production
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=3),
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
-    "SIGNING_KEY": "your-secret-key",  # Use `os.getenv("SECRET_KEY")` in production
+    "SIGNING_KEY": os.getenv("JWT_SECRET_KEY"),  # Use `os.getenv("SECRET_KEY")` in production
     "AUTH_HEADER_TYPES": ("Bearer",),
 }
 
@@ -245,7 +245,7 @@ REST_FRAMEWORK = {
         'rest_framework.parsers.FormParser',
     ],
     'DEFAULT_THROTTLE_RATES': {
-        'anon': '100/hour',
+        'anon': '1000/hour',
         'user': '1000/hour'
     }
 }

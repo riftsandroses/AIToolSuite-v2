@@ -204,8 +204,3 @@ function App() {
 }
 
 export default App;
-
-// kpmg-tester
-// Qwerty@12345
-// 192.168.10.47
-// Server1

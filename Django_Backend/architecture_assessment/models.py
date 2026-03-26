@@ -1,7 +1,11 @@
 from django.db import models
 from django.contrib.postgres.fields import ArrayField
+from decimal import Decimal
 from django.core.validators import MinValueValidator, MaxValueValidator
+from django.contrib.auth import get_user_model
 import uuid
+
+User = get_user_model()
 
 
 class SecurityAssessment(models.Model):
@@ -18,6 +22,16 @@ class SecurityAssessment(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    
+    # Owner — set to the authenticated user at creation time
+    owner = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='assessments',
+        help_text="User who created this assessment"
+    )
     
     # Core Information (Architecture diagram is mandatory)
     architecture_diagram = models.FileField(upload_to='architecture_diagrams/', null=False)
@@ -233,6 +247,7 @@ class SecurityAssessment(models.Model):
         indexes = [
             models.Index(fields=['status', '-created_at']),
             models.Index(fields=['overall_risk_score']),
+            models.Index(fields=['owner']),
         ]
     
     def __str__(self):
@@ -289,13 +304,12 @@ class VulnerableComponent(models.Model):
         decimal_places=1,
         null=True,
         blank=True,
-        validators=[MinValueValidator(0.0), MaxValueValidator(10.0)]
+        validators=[MinValueValidator(Decimal('0.0')), MaxValueValidator(Decimal('10.0'))]
     )
     cwe_id = models.CharField(max_length=50, blank=True, null=True)
     owasp_category = models.CharField(max_length=100, blank=True, null=True)
 
-    # AI-calculated severity reasoning (populated when severity is auto-calculated
-    # after a control is added, or set during initial analysis)
+    # AI-calculated severity reasoning
     severity_reasoning = models.TextField(
         blank=True,
         null=True,
@@ -345,12 +359,12 @@ class RemediationControl(models.Model):
     implementation_details = models.TextField(blank=True, null=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='planned')
     
-    # Impact on risk — auto-calculated by AI; never manually supplied by the user
+    # Impact on risk — auto-calculated by AI
     risk_reduction_percentage = models.IntegerField(
         validators=[MinValueValidator(0), MaxValueValidator(100)],
         null=True,
         blank=True,
-        help_text="AI-calculated percentage reduction in risk. Set automatically; do not supply manually."
+        help_text="AI-calculated percentage reduction in risk."
     )
     risk_reduction_reasoning = models.TextField(
         blank=True,
@@ -394,9 +408,6 @@ class RemediationControl(models.Model):
 class EvidenceFile(models.Model):
     """
     Separate evidence files linked to a remediation control.
-    Allows multiple evidence files per control while still using the
-    legacy single `evidence_files` FileField on RemediationControl for
-    backwards compatibility.
     """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     remediation_control = models.ForeignKey(
@@ -455,14 +466,12 @@ class AssessmentHistory(models.Model):
 
 class VulnerabilityFeedback(models.Model):
     """
-    Human feedback on vulnerability findings.
+    Human feedback on vulnerability findings used to improve RAG-based analysis.
 
     Three feedback types are supported:
-      - false_positive  : the finding is not a real vulnerability in this context
-      - prior_control   : a control was already in place before the assessment; the
-                          recommendation should have acknowledged it
-      - missed_finding  : a vulnerability was missed entirely by the AI and the
-                          reviewer is supplying it manually so future analyses improve
+      - false_positive  : the finding is not a real vulnerability
+      - prior_control   : a control was already in place before the assessment
+      - missed_finding  : a vulnerability was missed entirely by the AI
     """
 
     FEEDBACK_TYPE_CHOICES = [
@@ -475,8 +484,6 @@ class VulnerabilityFeedback(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    # The finding this feedback applies to (nullable for missed_finding where no
-    # existing finding exists)
     vulnerable_component = models.ForeignKey(
         VulnerableComponent,
         on_delete=models.CASCADE,
@@ -485,7 +492,6 @@ class VulnerabilityFeedback(models.Model):
         blank=True
     )
 
-    # For missed_finding feedback we need to know which assessment it belongs to
     assessment = models.ForeignKey(
         SecurityAssessment,
         on_delete=models.CASCADE,
@@ -496,19 +502,18 @@ class VulnerabilityFeedback(models.Model):
 
     feedback_type = models.CharField(max_length=30, choices=FEEDBACK_TYPE_CHOICES)
 
-    # Human explanation / narrative
     explanation = models.TextField(
         help_text="Explain why this is a false positive, what prior control exists, "
                   "or describe the missed finding in detail."
     )
 
-    # For false_positive: which aspect is wrong
+    # For false_positive
     false_positive_reason = models.TextField(
         blank=True, null=True,
-        help_text="Specific reason this was a false positive (context, architecture, etc.)"
+        help_text="Specific reason this was a false positive"
     )
 
-    # For prior_control: describe the existing control so the AI learns to detect it
+    # For prior_control
     prior_control_name = models.CharField(max_length=255, blank=True, null=True)
     prior_control_description = models.TextField(blank=True, null=True)
     prior_control_evidence = models.FileField(
@@ -517,7 +522,7 @@ class VulnerabilityFeedback(models.Model):
         null=True
     )
 
-    # For missed_finding: the full vulnerability that should have been raised
+    # For missed_finding
     missed_finding_title = models.CharField(max_length=255, blank=True, null=True)
     missed_finding_description = models.TextField(blank=True, null=True)
     missed_finding_severity = models.CharField(
@@ -529,10 +534,16 @@ class VulnerabilityFeedback(models.Model):
     missed_finding_category = models.CharField(max_length=100, blank=True, null=True)
     missed_finding_recommendation = models.TextField(blank=True, null=True)
 
-    # Who submitted the feedback
     submitted_by = models.CharField(max_length=255, blank=True, null=True)
 
-    # Whether this feedback has been incorporated into training
+    # ChromaDB vector ID — set when this feedback is indexed into ChromaDB
+    chroma_vector_id = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text="ChromaDB document ID for this feedback's vector embedding"
+    )
+
     incorporated_in_training = models.BooleanField(default=False)
     training_job = models.ForeignKey(
         'TrainingJob',
@@ -548,6 +559,7 @@ class VulnerabilityFeedback(models.Model):
         indexes = [
             models.Index(fields=['feedback_type', 'incorporated_in_training']),
             models.Index(fields=['assessment']),
+            models.Index(fields=['chroma_vector_id']),
         ]
 
     def __str__(self):
@@ -556,13 +568,12 @@ class VulnerabilityFeedback(models.Model):
 
 class TrainingJob(models.Model):
     """
-    Records of weekly automated fine-tuning / prompt-improvement jobs.
+    Records of automated RAG knowledge-base refresh jobs.
 
-    Instead of literal OpenAI fine-tuning (which is expensive and slow), the
-    job distills accumulated feedback into an updated system-prompt addendum
-    that is stored in `refined_system_prompt`.  The SecurityAnalyzer loads this
-    addendum at runtime and prepends it to every analysis prompt, effectively
-    making the model smarter about the specific patterns the team has corrected.
+    The job distils accumulated feedback into an updated system-prompt addendum
+    AND re-indexes all feedback into ChromaDB for semantic retrieval. Both
+    mechanisms work together: the addendum provides rule-based guidance, while
+    ChromaDB provides example-based (few-shot) context to every analysis prompt.
     """
 
     STATUS_CHOICES = [
@@ -579,11 +590,16 @@ class TrainingJob(models.Model):
 
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
 
-    # How many feedback items were ingested
     feedback_count = models.IntegerField(default=0)
     false_positive_count = models.IntegerField(default=0)
     prior_control_count = models.IntegerField(default=0)
     missed_finding_count = models.IntegerField(default=0)
+
+    # Number of documents indexed into ChromaDB during this job
+    chroma_indexed_count = models.IntegerField(
+        default=0,
+        help_text="Number of feedback documents indexed into ChromaDB"
+    )
 
     # The generated prompt addendum that improves future analyses
     refined_system_prompt = models.TextField(
@@ -591,9 +607,7 @@ class TrainingJob(models.Model):
         help_text="AI-generated prompt addendum incorporating all feedback patterns"
     )
 
-    # Summary of what changed / was learned
     training_summary = models.TextField(blank=True, null=True)
-
     error_message = models.TextField(blank=True, null=True)
 
     class Meta:
@@ -602,3 +616,90 @@ class TrainingJob(models.Model):
 
     def __str__(self):
         return f"TrainingJob {self.id} [{self.status}] — {self.created_at.date()}"
+
+
+# ---------------------------------------------------------------------------
+# Token usage tracking
+# ---------------------------------------------------------------------------
+
+class TokenUsage(models.Model):
+    """
+    Per-request token usage record for OpenAI API calls.
+
+    Each AI call (analysis, severity recalc, evidence verification, training)
+    creates one record.  The statistics endpoint aggregates these per-user.
+    """
+
+    OPERATION_CHOICES = [
+        ('architecture_extraction', 'Architecture Diagram Extraction'),
+        ('risk_score', 'Risk Score Calculation'),
+        ('vulnerability_identification', 'Vulnerability Identification'),
+        ('severity_recalculation', 'Severity Recalculation'),
+        ('evidence_verification', 'Evidence Verification'),
+        ('risk_reduction', 'Risk Reduction Calculation'),
+        ('risk_with_controls', 'Risk Recalculation With Controls'),
+        ('feedback_training', 'Feedback Training / Addendum Generation'),
+        ('embedding', 'Embedding Generation'),
+        ('rag_retrieval', 'RAG Context Retrieval'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    # Who triggered this call (null for system / background tasks)
+    user = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='token_usage_records',
+        help_text="User who triggered this AI call (null for background tasks)"
+    )
+
+    # What was being done
+    operation = models.CharField(max_length=50, choices=OPERATION_CHOICES)
+    model_name = models.CharField(max_length=100, help_text="e.g. gpt-4o, text-embedding-3-small")
+
+    # Token counts
+    prompt_tokens = models.IntegerField(default=0)
+    completion_tokens = models.IntegerField(default=0)
+    total_tokens = models.IntegerField(default=0)
+
+    # Optional link to the assessment/feedback this call was part of
+    assessment = models.ForeignKey(
+        SecurityAssessment,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='token_usage_records'
+    )
+    training_job = models.ForeignKey(
+        TrainingJob,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='token_usage_records'
+    )
+
+    # Approximate cost in USD (optional — populate if you know the pricing)
+    estimated_cost_usd = models.DecimalField(
+        max_digits=10,
+        decimal_places=6,
+        null=True,
+        blank=True,
+        help_text="Estimated cost in USD based on current OpenAI pricing"
+    )
+
+    class Meta:
+        db_table = 'token_usage'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', '-created_at']),
+            models.Index(fields=['operation']),
+            models.Index(fields=['assessment']),
+            models.Index(fields=['training_job']),
+        ]
+
+    def __str__(self):
+        user_str = self.user.username if self.user else 'system'
+        return f"{self.operation} by {user_str} — {self.total_tokens} tokens"

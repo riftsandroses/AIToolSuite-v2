@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import UserLoginView, TOTPVerifyView, TOTPSetupView
+from .views import UserLoginView, TOTPVerifyView, TOTPSetupView, LogoutView
 from rest_framework_simplejwt.views import TokenRefreshView
 
 urlpatterns = [
@@ -7,4 +7,5 @@ urlpatterns = [
     path('totp/verify/', TOTPVerifyView.as_view(), name='totp_verify'),
     path('totp/setup/', TOTPSetupView.as_view(), name='totp_setup'),
     path('refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('logout/', LogoutView.as_view(), name='logout'),
 ]

@@ -22,8 +22,11 @@ logger = logging.getLogger(__name__)
 @shared_task(bind=True, max_retries=2, default_retry_delay=300)
 def run_weekly_training(self):
     """
-    Distil all unincorporated VulnerabilityFeedback into a refined system-prompt
-    addendum and persist it as a completed TrainingJob.
+    Distil all unincorporated VulnerabilityFeedback into:
+      1. A refined system-prompt addendum (rule-based guidance)
+      2. A fully re-indexed ChromaDB feedback collection (semantic RAG)
+
+    Both outputs are used at inference time by SecurityAnalyzer.
 
     This task is scheduled to run once a week (Monday 02:00 UTC by default).
     It can also be triggered manually via:
@@ -42,15 +45,21 @@ def run_weekly_training(self):
     logger.info(f"[training] Starting weekly training run with {pending} feedback items.")
     try:
         trainer = FeedbackTrainer()
-        job = trainer.run_weekly_training()
+        # user=None for background tasks — token usage is tracked as system
+        job = trainer.run_weekly_training(user=None)
         logger.info(
             f"[training] Completed. Job ID={job.id}, "
             f"feedback={job.feedback_count}, "
             f"fp={job.false_positive_count}, "
             f"pc={job.prior_control_count}, "
-            f"mf={job.missed_finding_count}"
+            f"mf={job.missed_finding_count}, "
+            f"chroma_indexed={job.chroma_indexed_count}"
         )
-        return {"status": "completed", "job_id": str(job.id)}
+        return {
+            "status": "completed",
+            "job_id": str(job.id),
+            "chroma_indexed": job.chroma_indexed_count,
+        }
     except Exception as exc:
         logger.exception(f"[training] Training run failed: {exc}")
         raise self.retry(exc=exc)

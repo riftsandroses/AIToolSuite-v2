@@ -7,6 +7,7 @@ from .models import (
     AssessmentHistory,
     VulnerabilityFeedback,
     TrainingJob,
+    TokenUsage,
 )
 
 
@@ -14,19 +15,19 @@ from .models import (
 class SecurityAssessmentAdmin(admin.ModelAdmin):
     list_display = [
         'id', 'created_at', 'status', 'overall_risk_score',
-        'application_purpose', 'business_criticality'
+        'application_purpose', 'business_criticality', 'owner'
     ]
     list_filter = ['status', 'created_at', 'business_criticality']
     search_fields = [
         'application_purpose', 'business_objectives',
-        'stakeholders', 'programming_languages'
+        'stakeholders', 'programming_languages', 'owner__username'
     ]
     readonly_fields = ['id', 'created_at', 'updated_at']
-    
+
     fieldsets = (
         ('Basic Information', {
             'fields': (
-                'id', 'created_at', 'updated_at', 'status',
+                'id', 'created_at', 'updated_at', 'status', 'owner',
                 'architecture_diagram', 'overall_risk_score', 'risk_reasoning'
             )
         }),
@@ -98,7 +99,7 @@ class VulnerableComponentAdmin(admin.ModelAdmin):
         'affected_devices', 'framework_mapping'
     ]
     readonly_fields = ['id', 'created_at', 'updated_at', 'severity_reasoning', 'severity_last_calculated_at']
-    
+
     fieldsets = (
         ('Basic Information', {
             'fields': ('id', 'assessment', 'created_at', 'updated_at')
@@ -143,7 +144,7 @@ class RemediationControlAdmin(admin.ModelAdmin):
         'evidence_verification_result', 'evidence_verified_at', 'evidence_verification_passed'
     ]
     inlines = [EvidenceFileInline]
-    
+
     fieldsets = (
         ('Basic Information', {
             'fields': ('id', 'vulnerable_component', 'created_at', 'updated_at')
@@ -189,32 +190,24 @@ class AssessmentHistoryAdmin(admin.ModelAdmin):
     list_filter = ['timestamp']
     search_fields = ['change_reason', 'changed_by']
     readonly_fields = ['id', 'timestamp']
-    
-    fieldsets = (
-        ('Basic Information', {
-            'fields': ('id', 'assessment', 'timestamp')
-        }),
-        ('Score Change', {
-            'fields': (
-                'previous_score', 'new_score',
-                'change_reason', 'changed_by'
-            )
-        }),
-    )
 
 
 @admin.register(VulnerabilityFeedback)
 class VulnerabilityFeedbackAdmin(admin.ModelAdmin):
     list_display = [
         'id', 'feedback_type', 'vulnerable_component', 'assessment',
-        'submitted_by', 'incorporated_in_training', 'created_at'
+        'submitted_by', 'incorporated_in_training', 'chroma_vector_id', 'created_at'
     ]
     list_filter = ['feedback_type', 'incorporated_in_training', 'created_at']
     search_fields = [
         'explanation', 'false_positive_reason',
-        'prior_control_name', 'missed_finding_title', 'submitted_by'
+        'prior_control_name', 'missed_finding_title', 'submitted_by',
+        'chroma_vector_id',
     ]
-    readonly_fields = ['id', 'created_at', 'updated_at', 'incorporated_in_training', 'training_job']
+    readonly_fields = [
+        'id', 'created_at', 'updated_at',
+        'incorporated_in_training', 'training_job', 'chroma_vector_id',
+    ]
 
     fieldsets = (
         ('Basic Information', {
@@ -242,8 +235,8 @@ class VulnerabilityFeedbackAdmin(admin.ModelAdmin):
             ),
             'classes': ('collapse',)
         }),
-        ('Training Status', {
-            'fields': ('incorporated_in_training', 'training_job'),
+        ('RAG / Training Status', {
+            'fields': ('chroma_vector_id', 'incorporated_in_training', 'training_job'),
             'classes': ('collapse',)
         }),
     )
@@ -254,15 +247,15 @@ class TrainingJobAdmin(admin.ModelAdmin):
     list_display = [
         'id', 'status', 'feedback_count',
         'false_positive_count', 'prior_control_count', 'missed_finding_count',
-        'created_at', 'completed_at'
+        'chroma_indexed_count', 'created_at', 'completed_at'
     ]
     list_filter = ['status', 'created_at']
     readonly_fields = [
         'id', 'created_at', 'started_at', 'completed_at',
         'feedback_count', 'false_positive_count', 'prior_control_count',
-        'missed_finding_count', 'training_summary', 'error_message',
-        # refined_system_prompt is shown in admin for debugging but is read-only
-        'refined_system_prompt'
+        'missed_finding_count', 'chroma_indexed_count',
+        'training_summary', 'error_message',
+        'refined_system_prompt',
     ]
 
     fieldsets = (
@@ -272,7 +265,8 @@ class TrainingJobAdmin(admin.ModelAdmin):
         ('Feedback Stats', {
             'fields': (
                 'feedback_count', 'false_positive_count',
-                'prior_control_count', 'missed_finding_count'
+                'prior_control_count', 'missed_finding_count',
+                'chroma_indexed_count',
             )
         }),
         ('Results', {
@@ -283,3 +277,38 @@ class TrainingJobAdmin(admin.ModelAdmin):
             'classes': ('collapse',)
         }),
     )
+
+
+@admin.register(TokenUsage)
+class TokenUsageAdmin(admin.ModelAdmin):
+    list_display = [
+        'id', 'user', 'operation', 'model_name',
+        'prompt_tokens', 'completion_tokens', 'total_tokens',
+        'estimated_cost_usd', 'created_at',
+    ]
+    list_filter = ['operation', 'model_name', 'created_at', 'user']
+    search_fields = ['user__username', 'operation', 'model_name']
+    readonly_fields = [
+        'id', 'created_at', 'user', 'operation', 'model_name',
+        'prompt_tokens', 'completion_tokens', 'total_tokens',
+        'estimated_cost_usd', 'assessment', 'training_job',
+    ]
+
+    fieldsets = (
+        ('Basic Info', {
+            'fields': ('id', 'created_at', 'user', 'operation', 'model_name')
+        }),
+        ('Token Counts', {
+            'fields': ('prompt_tokens', 'completion_tokens', 'total_tokens', 'estimated_cost_usd')
+        }),
+        ('Context', {
+            'fields': ('assessment', 'training_job'),
+            'classes': ('collapse',)
+        }),
+    )
+
+    def has_add_permission(self, request):
+        return False  # Token records are created programmatically only
+
+    def has_change_permission(self, request, obj=None):
+        return False  # Immutable audit log
