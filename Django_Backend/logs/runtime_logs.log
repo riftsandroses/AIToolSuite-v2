@@ -170,3 +170,4 @@ INFO 2026-03-25 15:13:06,706 apps JWT Scanner Auto-Service started successfully 
 INFO 2026-03-25 15:13:06,728 startup_service Shutting down JWT Scanner auto-service...
 INFO 2026-03-25 18:48:24,734 tasks Cleaned up 0 old scans
 INFO 2026-03-26 07:30:00,077 tasks Cleaned up 0 old scans
+INFO 2026-03-26 18:48:24,762 tasks Cleaned up 0 old scans

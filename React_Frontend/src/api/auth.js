@@ -226,3 +226,27 @@ export const deleteAuthCookies = () => {
   Cookie.erase("refreshToken");
   Cookie.erase("accessToken");
 };
+
+// ---------------------------------------------------------------------------
+// Auto-logout on tab/browser close (not on refresh)
+// ---------------------------------------------------------------------------
+
+/**
+ * On first load, mark the session as "alive" in sessionStorage.
+ * sessionStorage is cleared automatically when the tab is closed,
+ * but survives a page refresh — so we only wipe cookies on a true
+ * first load where the flag is absent (meaning the tab was freshly opened
+ * after being closed).
+ */
+export const initSessionGuard = () => {
+  const SESSION_KEY = "session_alive";
+
+  if (!sessionStorage.getItem(SESSION_KEY)) {
+    // Tab was closed and reopened (or first ever visit) — clear stale cookies
+    deleteAuthCookies();
+    stopTokenRefresh();
+  }
+
+  // Mark session as alive for this tab's lifetime
+  sessionStorage.setItem(SESSION_KEY, "1");
+};

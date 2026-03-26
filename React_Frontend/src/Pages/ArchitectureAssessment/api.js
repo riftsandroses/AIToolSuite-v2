@@ -2,7 +2,7 @@
 // Base URL for the Architecture Assessment API
 import * as Cookie from "../../utils/cookie";
 
-const BASE_URL = "http://127.0.0.1:8000/api/v1/architecture-assessment";
+const BASE_URL = "https://api.aitoolsuite.xyz/api/v1/architecture-assessment";
 
 /**
  * Get access token from cookies
@@ -11,7 +11,8 @@ const getToken = () => {
   const token = Cookie.get("accessToken");
 
   if (!token) {
-    throw new Error("Authentication token missing. Please login again.");
+    window.location.href = "/login";
+    throw new Error("Redirecting to login..."); // stops execution
   }
 
   return token.trim();

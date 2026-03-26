@@ -44,6 +44,10 @@ import API92023TC5 from "./Components/APIPentest/TestCasePages/API9/API92023TC5"
 import API92023TC6 from "./Components/APIPentest/TestCasePages/API9/API92023TC6";
 import API92023TC7 from "./Components/APIPentest/TestCasePages/API9/API92023TC7";
 import CustomTestingTC1 from "./Components/APIPentest/TestCasePages/CUSTOMTESTCASE/CustomTestingTC1";
+import { initSessionGuard } from "./api/auth";
+
+initSessionGuard(); // call before rendering anything
+
 const darkTheme = createTheme({
   palette: {
     mode: "dark",
