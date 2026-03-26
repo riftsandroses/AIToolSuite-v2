@@ -20,7 +20,7 @@ import MermaidDiagram from '../../Components/ThreatModel/MermaidDiagram';
 const token = getAuthCookies().accessToken
 
 const apiCall = async (endpoint, method = 'GET', data = null) => {
-  const baseURL = process.env.REACT_APP_API_BASE_URL || '';
+  const baseURL = import.meta.env.VITE_API_URL || '';
 
   const config = {
     method,
@@ -225,7 +225,7 @@ const ThreatModelAssessment = () => {
           break;
       }
 
-      const response = await fetch(`${process.env.REACT_APP_API_BASE_URL}/api/v1/threat-model${endpoint}`, {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/threat-model${endpoint}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',

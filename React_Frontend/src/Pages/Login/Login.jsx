@@ -7,7 +7,7 @@ import Snackbar from '../../Components/Snackbar/Snackbar';
 import { styled } from '@mui/system';
 import HCaptcha from '@hcaptcha/react-hcaptcha';
 
-const siteKey = process.env.REACT_APP_HCAPTCHA_SITE_KEY;
+const siteKey = import.meta.env.VITE_HCAPTCHA_SITE_KEY;
 
 const LoginContainer = styled('div')`
   display: flex;

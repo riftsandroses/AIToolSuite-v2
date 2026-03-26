@@ -23,7 +23,7 @@ const ThreatModel = () => {
     deployment_environment_detail: '',
     critical_assets: ''
   });
-  const baseURL = process.env.REACT_APP_API_BASE_URL;
+  const baseURL = import.meta.env.VITE_API_URL;
 
   const [historicalAssessments, setHistoricalAssessments] = useState([]);
   const [loading, setLoading] = useState(false);

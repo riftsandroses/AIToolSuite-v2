@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { getAuthCookies } from "./auth";
 
-const API_BASE_URL = process.env.REACT_APP_API_BASE_URL;
+const API_BASE_URL = import.meta.env.VITE_API_URL;
 const API_URL = `${API_BASE_URL}/api/v1/architecture-assessment`;
 
 /**

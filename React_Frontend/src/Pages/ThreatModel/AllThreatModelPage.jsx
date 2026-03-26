@@ -3,7 +3,7 @@ import { Link, useNavigate, Outlet } from 'react-router-dom';
 import { Search, Users, Smartphone, Eye, ArrowLeft, RefreshCw } from 'lucide-react';
 import { getAuthCookies } from '../../api/auth';
 
-const baseUrl = process.env.REACT_APP_API_BASE_URL;
+const baseUrl = import.meta.env.VITE_API_URL;
 
 const ThreatModelScansTable = ({ scans, onScanClick }) => {
 

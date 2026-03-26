@@ -1,6 +1,6 @@
 // src/api/dllScannerApi.js
 
-const API_BASE_URL = `${process.env.REACT_APP_API_BASE_URL}/api/v1`;
+const API_BASE_URL = `${import.meta.env.VITE_API_URL}/api/v1`;
 
 export const connectToScanner = async (connectionData) => {
     const response = await fetch(`${API_BASE_URL}/connect/`, {
